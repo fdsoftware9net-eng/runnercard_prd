@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "lib": ["deno.ns"],
+    "target": "es2021"
+  },
+  "imports": {
+    "https://deno.land/x/hono@v3.11.11/mod.ts": "https://deno.land/x/hono@v3.11.11/mod.ts",
+    "https://deno.land/x/hono@v3.11.11/middleware.ts": "https://deno.land/x/hono@v3.11.11/middleware.ts",
+    "https://deno.land/std@0.224.0/http/server.ts": "https://deno.land/std@0.224.0/http/server.ts"
+  }
+}

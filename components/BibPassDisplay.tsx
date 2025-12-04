@@ -1,0 +1,540 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useLocation } from 'react-router-dom';
+import { getRunnerByAccessKey, updateRunner as updateRunnerService, getWalletConfig, logUserActivity } from '../services/supabaseService';
+import { getSession } from '../services/authService';
+import { Runner, WebPassConfig } from '../types';
+import { generateQrCodeDataUrl } from '../services/bibPassService';
+import Input from './Input';
+import Button from './Button';
+import LoadingSpinner from './LoadingSpinner';
+import { getConfig } from '../constants';
+import BibPassTemplate from './BibPassTemplate';
+import { DEFAULT_CONFIG } from '../defaults';
+// @ts-ignore - html2canvas types might not be automatically picked up in this environment
+import html2canvas from 'html2canvas';
+
+const GOOGLE_WALLET_EDGE_FUNCTION_URL = '/functions/v1/generate-google-wallet-pass';
+const APPLE_WALLET_EDGE_FUNCTION_URL = '/functions/v1/generate-apple-wallet-pass';
+
+interface BibPassDisplayProps {
+
+}
+
+export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
+  const { accessKey } = useParams<{ accessKey: string }>();
+  const location = useLocation();
+  const [runner, setRunner] = useState<Runner | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isVerified, setIsVerified] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [isSessionChecked, setIsSessionChecked] = useState(false);
+  const [idCardHashInput, setIdCardHashInput] = useState('');
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [bibPassQrCodeUrl, setBibPassQrCodeUrl] = useState<string>('');
+  const [webConfig, setWebConfig] = useState<WebPassConfig>(DEFAULT_CONFIG.web_pass_config!);
+
+  const [isAddingToGoogleWallet, setIsAddingToGoogleWallet] = useState(false);
+  const [isAddingToAppleWallet, setIsAddingToAppleWallet] = useState(false);
+  const [walletError, setWalletError] = useState<string | null>(null);
+  const [isSavingImage, setIsSavingImage] = useState(false);
+
+  // Ref for the container we want to capture
+  const passContainerRef = useRef<HTMLDivElement>(null);
+  const templateContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+
+  const fetchRunnerData = useCallback(async (key: string) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const [configResult, runnerResult] = await Promise.all([
+        getWalletConfig(),
+        getRunnerByAccessKey(key)
+      ]);
+
+      let selectedConfig: WebPassConfig = DEFAULT_CONFIG.web_pass_config!;
+
+      if (configResult.data) {
+        const templates = configResult.data.web_pass_templates || [];
+        const rules = configResult.data.template_assignment_rules || [];
+        const legacyConfig = configResult.data.web_pass_config;
+
+        // 1. Default to the first template, or legacy, or global default
+        if (templates.length > 0) {
+          selectedConfig = templates[0];
+        } else if (legacyConfig) {
+          selectedConfig = legacyConfig;
+        }
+
+        // 2. Check for Rule Matches (if runner exists)
+        if (runnerResult.data) {
+          const runnerData = runnerResult.data;
+          // Iterate through rules to find a match
+          for (const rule of rules) {
+            if (rule.operator === 'equals') {
+              const runnerValue = String(runnerData[rule.column] || '').trim();
+              const ruleValue = String(rule.value || '').trim();
+
+              if (runnerValue === ruleValue) {
+                const foundTemplate = templates.find(t => t.id === rule.template_id);
+                if (foundTemplate) {
+                  selectedConfig = foundTemplate;
+                  break; // First match wins
+                }
+              }
+            }
+          }
+        }
+
+        // 3. Direct Assignment Overrides Rules (Highest Priority)
+        if (runnerResult.data && runnerResult.data.web_pass_template_id) {
+          const foundTemplate = templates.find(t => t.id === runnerResult.data.web_pass_template_id);
+          if (foundTemplate) {
+            selectedConfig = foundTemplate;
+          }
+        }
+      }
+
+      setWebConfig({
+        ...DEFAULT_CONFIG.web_pass_config!,
+        ...selectedConfig,
+        fields: (selectedConfig.fields && selectedConfig.fields.length > 0) ? selectedConfig.fields : (DEFAULT_CONFIG.web_pass_config?.fields || [])
+      });
+
+      if (runnerResult.data) {
+        setRunner(runnerResult.data);
+        console.log('runnerResult.data', runnerResult.data);
+
+        const qrContent = runnerResult.data.qr || `Runner ID: ${runnerResult.data.id} - Bib: ${runnerResult.data.bib}`;
+        const qrUrl = await generateQrCodeDataUrl(qrContent, runnerResult.data.colour_sign || '');
+        setBibPassQrCodeUrl(qrUrl);
+
+        if (!runnerResult.data.pass_generated) {
+          await updateRunnerService({ id: runnerResult.data.id, pass_generated: true });
+        }
+      } else if (runnerResult.error) {
+        setError(runnerResult.error || 'Failed to retrieve runner data.');
+      } else {
+        setError('Runner not found. Please check your access link.');
+      }
+    } catch (err: any) {
+      console.error("Error fetching data:", err);
+      setError("An unexpected error occurred.");
+    } finally {
+      setLoading(false);
+    }
+
+  }, []);
+
+  useEffect(() => {
+    const checkAdminSession = async () => {
+      try {
+        const { session } = await getSession();
+        if (session) {
+          setIsAdmin(true);
+        }
+      } catch (e) {
+        console.log('No active admin session found.');
+      } finally {
+        setIsSessionChecked(true);
+      }
+    };
+    checkAdminSession();
+  }, []);
+
+  useEffect(() => {
+    if (accessKey) {
+      fetchRunnerData(accessKey);
+    } else {
+      setError('No access key provided.');
+      setLoading(false);
+    }
+  }, [accessKey, fetchRunnerData]);
+
+  useEffect(() => {
+    if (runner && location.state?.verified === true) {
+      setIsVerified(true);
+    }
+  }, [runner, location.state]);
+
+  const handleVerification = useCallback(() => {
+    if (!runner) return;
+
+    // If runner has no ID Card Hash, use BIB for verification
+    if (!runner.id_card_hash) {
+      if (idCardHashInput.trim().toUpperCase() === runner.bib.toUpperCase()) {
+        setIsVerified(true);
+        setVerificationError(null);
+      } else {
+        setVerificationError('Invalid BIB. Please enter your BIB number to verify.');
+      }
+      return;
+    }
+
+    // Normal verification with ID Card Hash
+    if (idCardHashInput === runner.id_card_hash) {
+      setIsVerified(true);
+      setVerificationError(null);
+    } else {
+      setVerificationError('Invalid ID Card Hash. Please try again.');
+    }
+  }, [runner, idCardHashInput]);
+
+  const handleSaveAsImage = useCallback(async () => {
+    // 0. ตรวจสอบความพร้อม
+    if (!templateContainerRef.current || !runner) return;
+
+    setIsSavingImage(true);
+    setIsCapturing(true);
+
+    try {
+      const templateContainer = templateContainerRef.current;
+
+      // --- ส่วนที่ 1: จัดการ Layout และ html2canvas (เหมือนเดิม) ---
+      const actualWidth = templateContainer.offsetWidth;
+      const actualHeight = templateContainer.offsetHeight;
+      const originalWidth = templateContainer.style.width;
+      const originalMaxWidth = templateContainer.style.maxWidth;
+      templateContainer.style.width = `${actualWidth}px`;
+      templateContainer.style.maxWidth = `${actualWidth}px`;
+
+      await new Promise(resolve => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setTimeout(resolve, 300);
+          });
+        });
+      });
+
+      const canvas = await html2canvas(templateContainer, {
+        scale: 2,
+        backgroundColor: null,
+        useCORS: true,
+        logging: false,
+        width: actualWidth,
+        height: actualHeight,
+        allowTaint: false
+      });
+
+      // คืนค่า Layout เดิม
+      templateContainer.style.width = originalWidth;
+      templateContainer.style.maxWidth = originalMaxWidth;
+      setIsCapturing(false);
+
+      // --- ส่วนที่ 2: เตรียมไฟล์รูปภาพ ---
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error("Create Blob Failed");
+
+      const fileName = `RunnerPass_${runner.bib}.png`;
+      const file = new File([blob as unknown as BlobPart], fileName, { type: 'image/png' });
+      const objectUrl = URL.createObjectURL(blob as Blob);
+
+      // --- ส่วนที่ 3: เช็ค OS และแยก Flow การทำงาน ---
+      const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+      // เช็คว่าเป็น iOS หรือไม่ (iPhone, iPad, iPod)
+      const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
+      
+      // ฟังก์ชันสำหรับดาวน์โหลดปกติ (ใช้สำหรับ Android และ Desktop)
+      const performDownload = () => {
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        // รอแป๊บนึงค่อยเคลียร์ Memory
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+      };
+
+      // === FLOW LOGIC ===
+
+      if (isIOS) {
+        // [CASE 1]: iOS ให้เปิด Share Sheet
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: 'Runner Pass',
+              text: 'Here is my runner pass!',
+            });
+            // Share สำเร็จ
+            URL.revokeObjectURL(objectUrl);
+          } catch (shareError) {
+            console.warn("Share cancelled or failed:", shareError);
+            // กรณี iOS Share ไม่ผ่าน/User ยกเลิก -> เปิดรูปให้ User กด Save เอง
+            // ใช้ replace เพื่อไม่ให้กด Back แล้ววนกลับมาหน้าเดิม
+            window.location.replace(objectUrl); 
+          }
+        } else {
+            // กรณีเป็น iOS รุ่นเก่ามากๆ ที่ไม่มี Share API
+            window.location.replace(objectUrl);
+        }
+      } else {
+        // [CASE 2 & 3]: Android หรือ Desktop หรืออื่นๆ ให้ดาวน์โหลดปกติเลย
+        performDownload();
+      }
+
+      // Log successful save image activity (non-blocking)
+      logUserActivity({
+        activity_type: 'save_image',
+        runner_id: runner.id || null,
+        success: true,
+        metadata: {
+          image_format: 'png',
+          image_dimensions: {
+            width: actualWidth,
+            height: actualHeight,
+          },
+          file_name: fileName,
+        },
+      }).catch((err) => {
+        // Fail silently to avoid impacting UX
+        console.warn('Failed to log save image activity:', err);
+      });
+
+    } catch (err) {
+      console.error("Failed to generate image:", err);
+      setWalletError("Failed to save image. Please try again.");
+      setIsCapturing(false);
+
+      // Log failed save image activity (non-blocking)
+      if (runner?.id) {
+        logUserActivity({
+          activity_type: 'save_image',
+          runner_id: runner.id,
+          success: false,
+          error_message: err instanceof Error ? err.message : 'Failed to save image',
+        }).catch((logErr) => {
+          console.warn('Failed to log save image activity:', logErr);
+        });
+      }
+    } finally {
+      setIsSavingImage(false);
+    }
+  }, [runner]);
+
+  const handleAddPassportToWallet = useCallback(async (walletType: 'google' | 'apple') => {
+    setWalletError(null);
+    if (!runner) return;
+
+    const config = getConfig();
+    const functionUrl = walletType === 'google' ? GOOGLE_WALLET_EDGE_FUNCTION_URL : APPLE_WALLET_EDGE_FUNCTION_URL;
+    const fullUrl = `${config.SUPABASE_URL}${functionUrl}`;
+
+    console.log('fullUrl', fullUrl);
+
+    if (walletType === 'google') {
+      setIsAddingToGoogleWallet(true);
+      try {
+        const response = await fetch(fullUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${config.SUPABASE_ANON_KEY}`
+          },
+          body: JSON.stringify({ runnerId: runner.id }),
+        });
+
+        const responseText = await response.text();
+        if (response.status === 401) throw new Error(`Unauthorized (401). Disable Verify JWT.`);
+
+        let data;
+        try { data = JSON.parse(responseText); } catch (e) { throw new Error(responseText || `Server Error`); }
+
+        if (!response.ok) throw new Error(data.error || data.message);
+
+        if (data.saveToGoogleWalletLink) {
+          window.open(data.saveToGoogleWalletLink, '_blank');
+        } else {
+          setWalletError('Failed to get Google Wallet link.');
+        }
+      } catch (err: any) {
+        console.error('Google Wallet Error:', err);
+        setWalletError(err.message);
+      } finally {
+        setIsAddingToGoogleWallet(false);
+      }
+    } else if (walletType === 'apple') {
+      setIsAddingToAppleWallet(true);
+
+      try {
+        // 1. กำหนด URL พร้อม Query Param (เพื่อให้ Function รู้ว่าใครขอ Pass)
+        const downloadUrl = `${fullUrl}?runnerId=${runner.id}`;
+
+        // 2. เรียก Edge Function แบบ GET
+        // ไม่ต้องใส่ Content-Type: application/json เพราะเราไม่ได้ส่ง Body
+        const response = await fetch(downloadUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${config.SUPABASE_ANON_KEY}`,
+            // แนะนำให้ใส่ Accept เพื่อบอก Server ว่าเราคาดหวังไฟล์ Pass
+            'Accept': 'application/vnd.apple.pkpass'
+          }
+        });
+
+        // 3. เช็ค Error (ถ้าไม่ใช่ 200 OK)
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorMessage = 'Failed to generate Apple Wallet pass.';
+          try {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.error || errorData.message || errorMessage;
+          } catch (e) {
+            errorMessage = errorText || `Server returned ${response.status}`;
+          }
+          throw new Error(errorMessage);
+        }
+
+        // 4. เช็ค Content-Type ว่าเป็น pkpass จริงไหม
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/vnd.apple.pkpass')) {
+          throw new Error('Invalid file type returned from server.');
+        }
+
+        // 5. แปลงเป็น Blob
+        const blob = await response.blob();
+        const blobUrl = window.URL.createObjectURL(blob);
+
+        // 6. สร้าง Link เพื่อดาวน์โหลด (วิธีนี้เสถียรสุดทั้ง iOS และ Android/Desktop)
+        // การใช้ window.open(blobUrl) หลังจาก await มักจะโดน Browser Block บน iOS
+        // การสร้าง element <a> แล้ว click() จะได้ผลดีกว่า
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = `RacePass_${runner.bib || 'ticket'}.pkpass`; // ตั้งชื่อไฟล์
+        document.body.appendChild(link);
+
+        link.click(); // Trigger การดาวน์โหลด
+
+        // Cleanup
+        document.body.removeChild(link);
+        setTimeout(() => {
+          window.URL.revokeObjectURL(blobUrl);
+        }, 1000);
+
+      } catch (err: any) {
+        console.error('Apple Wallet Error:', err);
+        setWalletError(err.message || 'Failed to generate Apple Wallet pass.');
+      } finally {
+        // ย้ายมาไว้ใน finally เพื่อให้ loading หายไปเสมอ ไม่ว่าจะ error หรือสำเร็จ
+        setIsAddingToAppleWallet(false);
+      }
+    }
+  }, [runner]);
+
+  if (loading || !isSessionChecked) {
+    return <div className="flex justify-center items-center min-h-screen"><LoadingSpinner message="Loading..." /></div>;
+  }
+
+  if (error || !runner) {
+    return (
+      <div className="flex justify-center items-center min-h-screen p-4">
+        <div className="bg-red-900 text-red-100 p-6 rounded-lg shadow-md max-w-md text-center">
+          <h2 className="text-2xl font-bold mb-4">Error</h2>
+          <p>{error || 'Runner not found.'}</p>
+          <Button onClick={() => window.location.href = '/'} className="mt-4">Go to Home</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const shouldShowPass = isVerified || isAdmin;
+
+  if (!shouldShowPass) {
+    return (
+      <div className="flex justify-center items-center min-h-screen p-4">
+        <div className="bg-gray-800 p-6 rounded-lg shadow-md max-w-md w-full">
+          <h2 className="text-2xl font-bold text-white mb-4 text-center">Verify Your Runner Pass</h2>
+          {runner && !runner.id_card_hash ? (
+            <>
+              <p className="text-gray-300 text-sm mb-4 text-center">
+                This runner does not have an ID Card Number. Please enter your BIB number to verify.
+              </p>
+              <Input
+                id="id-card-hash-input"
+                label="BIB Number"
+                type="text"
+                value={idCardHashInput}
+                onChange={(e) => setIdCardHashInput(e.target.value)}
+                error={verificationError}
+                className="mb-4"
+                placeholder="Enter your BIB number"
+              />
+            </>
+          ) : (
+            <Input
+              id="id-card-hash-input"
+              label="ID Card Hash"
+              type="text"
+              value={idCardHashInput}
+              onChange={(e) => setIdCardHashInput(e.target.value)}
+              error={verificationError}
+              className="mb-4"
+              placeholder="Enter your ID Card Hash"
+            />
+          )}
+          <Button onClick={handleVerification} className="w-full">Verify</Button>
+          <Button onClick={() => window.location.href = '/'} variant='secondary' className="w-full mt-2">Back to Home</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-900 text-white p-4 flex flex-col items-center">
+      <h1 className="text-3xl font-extrabold mb-8 text-blue-400">Runner Card</h1>
+
+      <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Left: Visual Pass (Using New Template) */}
+        <div className="order-2 lg:order-1 flex justify-center">
+          {/* Wrap the template in a div with a ref for html2canvas */}
+
+          <div className="order-2 lg:order-1 flex justify-center w-full">
+            {/* 
+      เปลี่ยน div wrapper ตรงนี้ครับ 
+      เอา ref ไปแปะที่ div ที่ style เป็น fit-content 
+      เพื่อให้ Canvas จับแค่ขนาดรูป ไม่จับพื้นที่ว่าง 
+  */}
+            <div style={{ width: 'fit-content', position: 'relative' }}>
+              <div ref={passContainerRef}>
+                <BibPassTemplate
+                  runner={runner}
+                  config={webConfig}
+                  qrCodeUrl={bibPassQrCodeUrl}
+                  containerRefCallback={(ref) => { templateContainerRef.current = ref; }}
+                  isCapturing={isCapturing}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: Actions & Info */}
+        <div className="order-1 lg:order-2 bg-gray-800 p-6 rounded-lg shadow-lg h-fit">
+          <h2 className="text-2xl font-bold mb-4">Welcome, {runner.first_name}</h2>
+          <p className="text-gray-300 mb-6">Your digital runner card is ready. You can present this card at the event or add it to your digital wallet for easy access.</p>
+
+          <div className="space-y-4">
+            <Button onClick={handleSaveAsImage} className="w-full" loading={isSavingImage}>
+              {isSavingImage ? 'Saving Image...' : 'Save as Image'}
+            </Button>
+
+            <div className="border-t border-gray-700 pt-4">
+              <h3 className="text-lg font-semibold mb-3 text-white">Add to Wallet</h3>
+              {walletError && <p className="text-red-500 mb-2 text-sm">{walletError}</p>}
+              <div className="flex flex-col gap-3">
+                <Button onClick={() => handleAddPassportToWallet('google')} variant="secondary" loading={isAddingToGoogleWallet}>
+                  {isAddingToGoogleWallet ? 'Generating...' : 'Add to Google Wallet'}
+                </Button>
+                <Button onClick={() => handleAddPassportToWallet('apple')} variant="secondary" loading={isAddingToAppleWallet}>
+                  {isAddingToAppleWallet ? 'Generating...' : 'Add to Apple Wallet'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
