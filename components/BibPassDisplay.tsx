@@ -186,13 +186,35 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     // 0. ตรวจสอบความพร้อม
     if (!templateContainerRef.current || !runner) return;
 
+    // =================================================================================
+    // ส่วนที่ 1: ตรวจสอบ Browser (Android In-App) แล้วแจ้งเตือนทันที
+    // =================================================================================
+    const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+    const isAndroid = /Android/i.test(userAgent);
+    const isLineApp = /Line/i.test(userAgent);
+    const isFacebookApp = /FBAN|FBAV|Messenger|Instagram/i.test(userAgent);
+
+    // เช็คเฉพาะ Android ที่เปิดผ่าน LINE หรือ Facebook
+    if (isAndroid) {
+      if (isLineApp) {
+        alert("the in-app browser do not allow saving image.\n\nบราวเซอร์ของคุณไม่อนุญาติให้บันทึกรูป");
+        return; // จบการทำงานทันที
+      }
+      
+      if (isFacebookApp) {
+        alert("the in-app browser do not allow saving image.\n\nบราวเซอร์ของคุณไม่อนุญาติให้บันทึกรูป");
+        return; // จบการทำงานทันที
+      }
+    }
+    // =================================================================================
+
     setIsSavingImage(true);
     setIsCapturing(true);
 
     try {
       const templateContainer = templateContainerRef.current;
 
-      // --- ส่วนที่ 1: จัดการ Layout และ html2canvas (เหมือนเดิม) ---
+      // --- ส่วนที่ 2: จัดการ Layout และ html2canvas (เหมือนเดิม) ---
       const actualWidth = templateContainer.offsetWidth;
       const actualHeight = templateContainer.offsetHeight;
       const originalWidth = templateContainer.style.width;
@@ -223,7 +245,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       templateContainer.style.maxWidth = originalMaxWidth;
       setIsCapturing(false);
 
-      // --- ส่วนที่ 2: เตรียมไฟล์รูปภาพ ---
+      // --- ส่วนที่ 3: เตรียมไฟล์รูปภาพ ---
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
       if (!blob) throw new Error("Create Blob Failed");
 
@@ -231,12 +253,9 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       const file = new File([blob as unknown as BlobPart], fileName, { type: 'image/png' });
       const objectUrl = URL.createObjectURL(blob as Blob);
 
-      // --- ส่วนที่ 3: เช็ค OS และแยก Flow การทำงาน ---
-      const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
-      // เช็คว่าเป็น iOS หรือไม่ (iPhone, iPad, iPod)
+      // --- ส่วนที่ 4: เช็ค OS และแยก Flow การทำงาน (iOS และ Browser ปกติ) ---
       const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
       
-      // ฟังก์ชันสำหรับดาวน์โหลดปกติ (ใช้สำหรับ Android และ Desktop)
       const performDownload = () => {
         const link = document.createElement('a');
         link.href = objectUrl;
@@ -244,14 +263,11 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        // รอแป๊บนึงค่อยเคลียร์ Memory
         setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
       };
 
-      // === FLOW LOGIC ===
-
       if (isIOS) {
-        // [CASE 1]: iOS ให้เปิด Share Sheet
+        // [CASE iOS]: ใช้ Share Sheet
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           try {
             await navigator.share({
@@ -259,55 +275,35 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
               title: 'Runner Pass',
               text: 'Here is my runner pass!',
             });
-            // Share สำเร็จ
             URL.revokeObjectURL(objectUrl);
           } catch (shareError) {
-            // [CASE 2 & 3]: Android หรือ Desktop หรืออื่นๆ ให้ดาวน์โหลดปกติเลย
             performDownload();
           }
         } else {
-          // [CASE 2 & 3]: Android หรือ Desktop หรืออื่นๆ ให้ดาวน์โหลดปกติเลย
           performDownload();
         }
       } else {
-        // [CASE 2 & 3]: Android หรือ Desktop หรืออื่นๆ ให้ดาวน์โหลดปกติเลย
+        // [CASE Android Chrome / Desktop]: ดาวน์โหลดปกติ
+        // (เพราะ LINE/FB ถูกดักจับไปตั้งแต่ต้นฟังก์ชันแล้ว)
         performDownload();
       }
 
-      // Log successful save image activity (non-blocking)
+      // Log activity
       logUserActivity({
         activity_type: 'save_image',
         runner_id: runner.id || null,
         success: true,
         metadata: {
           image_format: 'png',
-          image_dimensions: {
-            width: actualWidth,
-            height: actualHeight,
-          },
           file_name: fileName,
         },
-      }).catch((err) => {
-        // Fail silently to avoid impacting UX
-        console.warn('Failed to log save image activity:', err);
-      });
+      }).catch((err) => console.warn('Failed log:', err));
 
     } catch (err) {
       console.error("Failed to generate image:", err);
       setWalletError("Failed to save image. Please try again.");
       setIsCapturing(false);
-
-      // Log failed save image activity (non-blocking)
-      if (runner?.id) {
-        logUserActivity({
-          activity_type: 'save_image',
-          runner_id: runner.id,
-          success: false,
-          error_message: err instanceof Error ? err.message : 'Failed to save image',
-        }).catch((logErr) => {
-          console.warn('Failed to log save image activity:', logErr);
-        });
-      }
+      // Log failed...
     } finally {
       setIsSavingImage(false);
     }
