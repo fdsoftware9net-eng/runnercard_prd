@@ -4,14 +4,14 @@ import { Runner } from '../types';
 
 export const generateQrCodeDataUrl = async (content: string, colour_sign: string): Promise<string> => {
   try {
-    let color = colour_sign === 'VIP' ? '#70a8a7' : '#1a75bb';
+    // let color = colour_sign === 'VIP' ? '#70a8a7' : '#1a75bb';
     const dataUrl = await QRCode.toDataURL(content, {
       errorCorrectionLevel: 'H',
       width: 150,
       margin: 2,
       color: {
         dark: '#ffffff',
-        light: color,
+        light: '#00000000',
       },
     });
     return dataUrl;

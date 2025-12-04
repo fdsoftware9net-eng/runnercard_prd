@@ -1,4 +1,4 @@
-# Analytics Guide - การนับจำนวน Lookup และ Download Images
+# Analytics Guide - การนับจำนวน Lookup และ Download Images t
 
 ## 📋 สารบัญ
 - [ภาพรวม](#ภาพรวม)
@@ -627,5 +627,6 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, subtitle, trend }) =>
 TRUNCATE TABLE user_activity_logs;
 TRUNCATE TABLE runners;
 TRUNCATE TABLE runners CASCADE;
+
 
 

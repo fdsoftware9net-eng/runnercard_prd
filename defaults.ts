@@ -93,6 +93,6 @@ export const DEFAULT_CONFIG: Omit<WalletConfig, 'id' | 'created_at'> = {
     web_pass_config: DEFAULT_WEB_PASS_CONFIG,
     web_pass_templates: [DEFAULT_WEB_PASS_CONFIG],
     template_assignment_rules: [],
-    lookup_page_title: 'Find Your Runner Pass',
+    lookup_page_title: 'Find Your Runner Card',
     lookup_page_instructions: 'Enter your details below to find your pass. You can use your first and last name, or your National ID number.',
 };

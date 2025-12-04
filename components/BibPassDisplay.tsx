@@ -262,14 +262,12 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
             // Share สำเร็จ
             URL.revokeObjectURL(objectUrl);
           } catch (shareError) {
-            console.warn("Share cancelled or failed:", shareError);
-            // กรณี iOS Share ไม่ผ่าน/User ยกเลิก -> เปิดรูปให้ User กด Save เอง
-            // ใช้ replace เพื่อไม่ให้กด Back แล้ววนกลับมาหน้าเดิม
-            window.location.replace(objectUrl); 
+            // [CASE 2 & 3]: Android หรือ Desktop หรืออื่นๆ ให้ดาวน์โหลดปกติเลย
+            performDownload();
           }
         } else {
-            // กรณีเป็น iOS รุ่นเก่ามากๆ ที่ไม่มี Share API
-            window.location.replace(objectUrl);
+          // [CASE 2 & 3]: Android หรือ Desktop หรืออื่นๆ ให้ดาวน์โหลดปกติเลย
+          performDownload();
         }
       } else {
         // [CASE 2 & 3]: Android หรือ Desktop หรืออื่นๆ ให้ดาวน์โหลดปกติเลย
@@ -487,52 +485,79 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
       <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left: Visual Pass (Using New Template) */}
-        <div className="order-2 lg:order-1 flex justify-center">
+        <div className="order-2 lg:order-1 flex flex-col">
           {/* Wrap the template in a div with a ref for html2canvas */}
+          <div style={{ width: 'fit-content', position: 'relative' }}>
+            <div ref={passContainerRef}>
+              <BibPassTemplate
+                runner={runner}
+                config={webConfig}
+                qrCodeUrl={bibPassQrCodeUrl}
+                containerRefCallback={(ref) => { templateContainerRef.current = ref; }}
+                isCapturing={isCapturing}
+              />
+            </div>
+          </div>
 
-          <div className="order-2 lg:order-1 flex justify-center w-full">
-            {/* 
-      เปลี่ยน div wrapper ตรงนี้ครับ 
-      เอา ref ไปแปะที่ div ที่ style เป็น fit-content 
-      เพื่อให้ Canvas จับแค่ขนาดรูป ไม่จับพื้นที่ว่าง 
-  */}
-            <div style={{ width: 'fit-content', position: 'relative' }}>
-              <div ref={passContainerRef}>
-                <BibPassTemplate
-                  runner={runner}
-                  config={webConfig}
-                  qrCodeUrl={bibPassQrCodeUrl}
-                  containerRefCallback={(ref) => { templateContainerRef.current = ref; }}
-                  isCapturing={isCapturing}
-                />
-              </div>
+          <div className="mt-8 pt-6 border-t border-gray-700 w-full">
+            <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
+              <span className="font-medium">Make your run more fun by</span>
+              <a
+                href="https://racesmart.run"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 font-bold text-white hover:text-blue-400 transition-colors duration-200 group"
+              >
+                <span>RaceSmart.run</span>
+              </a>
             </div>
           </div>
         </div>
 
         {/* Right: Actions & Info */}
         <div className="order-1 lg:order-2 bg-gray-800 p-6 rounded-lg shadow-lg h-fit">
-          <h2 className="text-2xl font-bold mb-4">Welcome, {runner.first_name}</h2>
-          <p className="text-gray-300 mb-6">Your digital runner card is ready. You can present this card at the event or add it to your digital wallet for easy access.</p>
+          {(() => {
+            const isThai = runner.nationality?.toLowerCase() === 'thai';
+            return (
+              <>
+                <h2 className="text-2xl font-bold mb-4">
+                  {isThai ? `ยินดีต้อนรับ, ${runner.first_name}` : `Welcome, ${runner.first_name}`}
+                </h2>
+                <p className="text-gray-300 mb-6">
+                  {isThai 
+                    ? 'Runner Card ของคุณพร้อมแล้ว กรุณาบันทึกบัตรนี้เพื่อใช้แสดงในการรับเสื้อและเบอร์วิ่ง (Race Kit) พร้อมกับบัตรประชาชนตัวจริง'
+                    : 'Your runner card is ready. Please save this card to present for race kit pick-up along with your original passport.'}
+                </p>
 
-          <div className="space-y-4">
-            <Button onClick={handleSaveAsImage} className="w-full" loading={isSavingImage}>
-              {isSavingImage ? 'Saving Image...' : 'Save as Image'}
-            </Button>
+                <div className="space-y-4">
+                  <Button onClick={handleSaveAsImage} className="w-full" loading={isSavingImage}>
+                    {isSavingImage 
+                      ? (isThai ? 'กำลังบันทึกรูปภาพ...' : 'Saving Image...')
+                      : (isThai ? 'บันทึกเป็นรูปภาพ' : 'Save as Image')}
+                  </Button>
 
-            <div className="border-t border-gray-700 pt-4">
-              <h3 className="text-lg font-semibold mb-3 text-white">Add to Wallet</h3>
-              {walletError && <p className="text-red-500 mb-2 text-sm">{walletError}</p>}
-              <div className="flex flex-col gap-3">
-                <Button onClick={() => handleAddPassportToWallet('google')} variant="secondary" loading={isAddingToGoogleWallet}>
-                  {isAddingToGoogleWallet ? 'Generating...' : 'Add to Google Wallet'}
-                </Button>
-                <Button onClick={() => handleAddPassportToWallet('apple')} variant="secondary" loading={isAddingToAppleWallet}>
-                  {isAddingToAppleWallet ? 'Generating...' : 'Add to Apple Wallet'}
-                </Button>
-              </div>
-            </div>
-          </div>
+                  {/* <div className="border-t border-gray-700 pt-4">
+                    <h3 className="text-lg font-semibold mb-3 text-white">
+                      {isThai ? 'เพิ่มลงในกระเป๋าเงิน' : 'Add to Wallet'}
+                    </h3>
+                    {walletError && <p className="text-red-500 mb-2 text-sm">{walletError}</p>}
+                    <div className="flex flex-col gap-3">
+                      <Button onClick={() => handleAddPassportToWallet('google')} variant="secondary" loading={isAddingToGoogleWallet}>
+                        {isAddingToGoogleWallet 
+                          ? (isThai ? 'กำลังสร้าง...' : 'Generating...')
+                          : (isThai ? 'เพิ่มลงใน Google Wallet' : 'Add to Google Wallet')}
+                      </Button>
+                      <Button onClick={() => handleAddPassportToWallet('apple')} variant="secondary" loading={isAddingToAppleWallet}>
+                        {isAddingToAppleWallet 
+                          ? (isThai ? 'กำลังสร้าง...' : 'Generating...')
+                          : (isThai ? 'เพิ่มลงใน Apple Wallet' : 'Add to Apple Wallet')}
+                      </Button>
+                    </div>
+                  </div> */}
+                </div>
+              </>
+            );
+          })()}
         </div>
       </div>
     </div>

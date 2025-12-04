@@ -11,7 +11,7 @@ export const getSupabaseClient = (): SupabaseClient => {
   if (supabase) {
     return supabase;
   }
-  
+
   // --- KEY CHANGE ---
   // Initialize from the centralized, lazy-loaded config function.
   try {
@@ -38,7 +38,7 @@ export const insertRunners = async (runners: Runner[]): Promise<ApiResponse<{ su
     for (let i = 0; i < totalRecords; i += CHUNK_SIZE) {
       const chunk = runners.slice(i, i + CHUNK_SIZE);
       const { data, error } = await supabaseClient.from('runners').insert(chunk).select('id');
-      
+
       if (error) {
         console.error(`Error in batch starting at index ${i}:`, error.message);
         console.error(`Failed batch details:`, {
@@ -50,7 +50,7 @@ export const insertRunners = async (runners: Runner[]): Promise<ApiResponse<{ su
           errorDetails: error.details,
           errorHint: error.hint
         });
-        
+
         // Try to insert one by one to identify which records failed
         for (let j = 0; j < chunk.length; j++) {
           const singleRecord = chunk[j];
@@ -78,13 +78,13 @@ export const insertRunners = async (runners: Runner[]): Promise<ApiResponse<{ su
       console.warn(`[insertRunners] Failed records:`, failedDetails.slice(0, 10)); // Log first 10 failures
     }
 
-    return { 
-      data: { 
-        successCount: recordsInserted, 
+    return {
+      data: {
+        successCount: recordsInserted,
         totalRecords: totalRecords,
         failedCount: failedCount,
         failedDetails: failedDetails.length > 0 ? failedDetails : undefined
-      } 
+      }
     };
   } catch (error: any) {
     console.error('Error inserting runners:', error);
@@ -164,8 +164,9 @@ export const findRunnerByDetails = async (
       queryBuilder = queryBuilder.eq('id_card_hash', hashedId);
     } else if (details.firstName && details.lastName && details.firstName.trim() && details.lastName.trim()) {
       queryBuilder = queryBuilder
-        .ilike('first_name', `%${details.firstName.trim()}%`)
-        .ilike('last_name', `%${details.lastName.trim()}%`);
+        // ลบ % ออกทั้งหน้าและหลัง เพื่อให้เป็นการหาแบบตรงเป๊ะๆ
+        .ilike('first_name', details.firstName.trim())
+        .ilike('last_name', details.lastName.trim());
     } else {
       return { error: 'Either National ID or both First and Last Name are required.' };
     }
@@ -173,10 +174,10 @@ export const findRunnerByDetails = async (
     const { data, error } = await queryBuilder.limit(1).maybeSingle();
 
     if (error) {
-        if (error.code === 'PGRST116') {
-             return { data: null };
-        }
-        throw new Error(error.message);
+      if (error.code === 'PGRST116') {
+        return { data: null };
+      }
+      throw new Error(error.message);
     }
 
     return { data };
@@ -200,13 +201,13 @@ export const updateRunner = async (runner: Partial<Runner>): Promise<ApiResponse
     if (error) {
       throw new Error(error.message);
     }
-    
+
     // If data is an array (even if 0 or more elements), return the first element if it exists, otherwise null
     const updatedRunner = data && data.length > 0 ? data[0] : null;
-    
+
     // Return null data if no record was effectively updated, without returning an error.
     // This allows the frontend to handle 'no effective changes' as a soft success.
-    return { data: updatedRunner }; 
+    return { data: updatedRunner };
   } catch (error: any) {
     console.error('Error updating runner:', error);
     return { error: error.message || 'Failed to update runner.' };
@@ -215,39 +216,39 @@ export const updateRunner = async (runner: Partial<Runner>): Promise<ApiResponse
 
 // New function to fetch ONLY IDs for bulk operations
 export const getAllRunnerIds = async (): Promise<ApiResponse<string[]>> => {
-    try {
-        const supabaseClient = getSupabaseClient();
-        let allIds: string[] = [];
-        let hasMore = true;
-        let page = 0;
-        const pageSize = 1000; // Supabase max limit per request
+  try {
+    const supabaseClient = getSupabaseClient();
+    let allIds: string[] = [];
+    let hasMore = true;
+    let page = 0;
+    const pageSize = 1000; // Supabase max limit per request
 
-        while (hasMore) {
-            const { data, error } = await supabaseClient
-                .from('runners')
-                .select('id')
-                .range(page * pageSize, (page + 1) * pageSize - 1);
+    while (hasMore) {
+      const { data, error } = await supabaseClient
+        .from('runners')
+        .select('id')
+        .range(page * pageSize, (page + 1) * pageSize - 1);
 
-            if (error) throw new Error(error.message);
+      if (error) throw new Error(error.message);
 
-            if (data) {
-                const ids = data.map(r => r.id as string);
-                allIds = [...allIds, ...ids];
-                if (data.length < pageSize) {
-                    hasMore = false;
-                } else {
-                    page++;
-                }
-            } else {
-                hasMore = false;
-            }
+      if (data) {
+        const ids = data.map(r => r.id as string);
+        allIds = [...allIds, ...ids];
+        if (data.length < pageSize) {
+          hasMore = false;
+        } else {
+          page++;
         }
-        
-        return { data: allIds };
-    } catch (error: any) {
-        console.error('Error fetching all runner IDs:', error);
-        return { error: error.message || 'Failed to fetch all runner IDs.' };
+      } else {
+        hasMore = false;
+      }
     }
+
+    return { data: allIds };
+  } catch (error: any) {
+    console.error('Error fetching all runner IDs:', error);
+    return { error: error.message || 'Failed to fetch all runner IDs.' };
+  }
 };
 
 const WALLET_CONFIG_ID = 1; // Use a fixed ID for the single config row
@@ -297,24 +298,24 @@ export const updateWalletConfig = async (config: Omit<WalletConfig, 'created_at'
 export const uploadPassAsset = async (file: File): Promise<ApiResponse<string>> => {
   try {
     const supabaseClient = getSupabaseClient();
-    
+
     // Sanitize filename: extract extension, remove special characters, keep only safe chars
     const originalName = file.name;
     const lastDotIndex = originalName.lastIndexOf('.');
     const extension = lastDotIndex > 0 ? originalName.substring(lastDotIndex) : '';
     const baseName = lastDotIndex > 0 ? originalName.substring(0, lastDotIndex) : originalName;
-    
+
     // Replace spaces and special characters with underscores, keep only alphanumeric, dots, hyphens, underscores
     const sanitizedBase = baseName
       .replace(/[^a-zA-Z0-9._-]/g, '_') // Replace any non-safe character with underscore
       .replace(/\s+/g, '_') // Replace spaces with underscore
       .replace(/_{2,}/g, '_') // Replace multiple underscores with single underscore
       .replace(/^_+|_+$/g, ''); // Remove leading/trailing underscores
-    
+
     // If sanitized name is empty, use a default name
     const safeBaseName = sanitizedBase || 'upload';
     const fileName = `${Date.now()}_${safeBaseName}${extension}`;
-    
+
     const bucketName = 'pass_assets'; // Ensure this bucket exists in Supabase Storage
 
     const { data, error } = await supabaseClient.storage

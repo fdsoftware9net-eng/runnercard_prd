@@ -133,6 +133,10 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
               topPx -= 5;
             } else if (blockValue && String(blockValue).startsWith('REFUND')) {
               topPx -= 5;
+            } else if (blockValue && String(blockValue).startsWith('PACER')) {
+              topPx -= 10;
+            } else if (blockValue && String(blockValue).startsWith('TFR')) {
+              topPx -= 15;
             } else {
               topPx -= 15;
             }
@@ -653,8 +657,6 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
         ref={containerRef}
         className="w-[450px] relative font-sans text-gray-800 shadow-2xl mx-auto"
         style={{
-          backgroundColor: themeColor,
-          overflow: 'visible',
         }}
       >
         {/* Background Image - Controls Aspect Ratio */}
@@ -664,6 +666,10 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
               src={config.backgroundImageUrl}
               alt="Pass Background"
               className="w-full h-auto block pointer-events-none"
+              style={{
+                border: 'transparent',
+                borderRadius: '20px',
+              }}
             />
           ) : (
             <div style={{ height: '600px', width: '100%' }} />

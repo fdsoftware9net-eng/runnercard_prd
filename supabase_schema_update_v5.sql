@@ -166,3 +166,4 @@ GRANT EXECUTE ON FUNCTION get_daily_statistics(INTEGER) TO anon;
 COMMENT ON FUNCTION get_daily_statistics(INTEGER) IS 
 'Returns daily statistics (lookups and downloads) for the specified number of days';
 
+

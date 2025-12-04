@@ -6,6 +6,7 @@ import { hashNationalId, hashSearchInput } from '../utils/hashing';
 import Input from './Input';
 import Button from './Button';
 import LoadingSpinner from './LoadingSpinner';
+import Swal from 'sweetalert2';
 
 const RunnerLookupPage: React.FC = () => {
     const [firstName, setFirstName] = useState('');
@@ -82,8 +83,36 @@ const RunnerLookupPage: React.FC = () => {
         }
 
         if (result.data) {
-            // On success, navigate to the bib pass page and pass a state to bypass verification
-            navigate(`/bibpass/${result.data.access_key}`, { state: { verified: true } });
+            console.log(result.data);
+            const isThai = result.data.nationality === 'Thai';
+            if (result.data.colour_sign === "DEFER") {
+                const message = isThai
+                    ? 'คุณได้เลือกสมัครแบบ <strong>ไม่วิ่ง (Defer)</strong> รักษาสิทธิ์นักวิ่งเก่าไว้<br/>เสื้อที่ระลึกและสินค้าที่ระลึก (ถ้ามี) จะถูกส่งให้ทางไปรษณีย์หลังงานภายใน 1 สัปดาห์'
+                    : 'You have chosen <strong>"Non-Running" (Defer)</strong>. The event t-shirt and any souvenirs (if applicable) will be sent by mail within one week after the event.';
+
+                Swal.fire({
+                    title: 'Defer Runner',
+                    html: `<p style="font-size: 1.2rem; font-weight: 300;">${message}</p>`,
+                    background: '#cbcad3',
+                    color: '#1f2937',
+                    confirmButtonColor: '#1f2937',
+
+                });
+            } else if (result.data.colour_sign === "REFUND") {
+                const message = isThai
+                    ? 'สถานะการสมัคร : ยกเลิกแบบรับเงินคืนบางส่วน (refund)'
+                    : 'registration status: cancelled with a partial refund (completed)';
+                Swal.fire({
+                    title: 'Refund Runner',
+                    html: `<p style="font-size: 1.2rem; font-weight: 300;">${message}</p>`,
+                    background: '#cbcad3',
+                    color: '#1f2937',
+                    confirmButtonColor: '#1f2937',
+                });
+            } else {
+                // On success, navigate to the bib pass page and pass a state to bypass verification
+                navigate(`/bibpass/${result.data.access_key}`, { state: { verified: true } });
+            }
         } else if (result.error) {
             setError(result.error);
         } else {
@@ -100,7 +129,7 @@ const RunnerLookupPage: React.FC = () => {
             <div className="w-full max-w-lg p-8 space-y-8 bg-gray-800 rounded-lg shadow-lg">
                 <div>
                     <h2 className="text-3xl font-extrabold text-center text-white">
-                        {config.lookup_page_title || 'Find Your Runner Pass'}
+                        {config.lookup_page_title || 'Find Your Runner Card'}
                     </h2>
                     <p className="mt-2 text-center text-sm text-gray-400">
                         {config.lookup_page_instructions || 'Enter your details below to find your pass.'}
@@ -108,11 +137,11 @@ const RunnerLookupPage: React.FC = () => {
                 </div>
                 <form className="mt-8 space-y-6" onSubmit={handleSubmit} noValidate>
                     {error && <p className="p-3 text-center bg-red-900 text-red-200 rounded-md">{error}</p>}
-                    
+
                     <div className="rounded-md shadow-sm -space-y-px">
                         <Input
                             id="first-name"
-                            label="First Name"
+                            label="First Name / ชื่อ"
                             name="first-name"
                             type="text"
                             autoComplete="given-name"
@@ -123,7 +152,7 @@ const RunnerLookupPage: React.FC = () => {
                         />
                         <Input
                             id="last-name"
-                            label="Last Name"
+                            label="Last Name / นามสกุล"
                             name="last-name"
                             type="text"
                             autoComplete="family-name"
@@ -136,13 +165,13 @@ const RunnerLookupPage: React.FC = () => {
 
                     <div className="flex items-center justify-between">
                         <div className="flex-grow border-t border-gray-600"></div>
-                        <span className="px-3 text-sm text-gray-400 bg-gray-800">OR</span>
+                        <span className="px-3 text-sm text-gray-400 bg-gray-800">OR (หรือ)</span>
                         <div className="flex-grow border-t border-gray-600"></div>
                     </div>
 
-                     <Input
+                    <Input
                         id="id-card-number"
-                        label="National ID Number"
+                        label="National ID Number / รหัสประจำตัวประชาชน"
                         name="id-card-number"
                         type="text"
                         required
@@ -158,10 +187,24 @@ const RunnerLookupPage: React.FC = () => {
                             loading={loading}
                             disabled={loading}
                         >
-                            Find My Pass
+                            Find My Card
                         </Button>
                     </div>
                 </form>
+
+                <div className="mt-8 pt-6 border-t border-gray-700">
+                    <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
+                        <span className="font-medium">Make your run more fun by</span>
+                        <a
+                            href="https://racesmart.run"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 font-bold text-white hover:text-blue-400 transition-colors duration-200 group"
+                        >
+                            <span>RaceSmart.run</span>
+                        </a>
+                    </div>
+                </div>
             </div>
         </div>
     );
