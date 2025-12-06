@@ -680,7 +680,6 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
         <div className="absolute inset-0" style={{ overflow: 'visible' }} translate="no">
           {config.fields?.map((field) => {
             let content = '';
-        console.log(ceontent);
             if (field.key === 'custom_text') {
               content = field.customText || '';
             } else if (field.key === 'qr_code') {
