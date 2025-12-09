@@ -1,17 +1,17 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Runner, WebPassConfig } from '../types';
-import { fontFamily } from 'html2canvas/dist/types/css/property-descriptors/font-family';
 
 // ค่าคงที่สำหรับการเขยิบ row_no เมื่อ row เป็นค่าว่าง
 const ROW_EMPTY_OFFSET = 12; // px
 
-interface BibPassTemplateProps {
+interface TemplateProps {
   runner: Runner;
   config: WebPassConfig;
-  qrCodeUrl: string; // The main QR code (usually BIB or Verify URL)
-  onLayoutReady?: () => void; // Callback when layout adjustments are complete
-  containerRefCallback?: (ref: HTMLDivElement | null) => void; // Callback to expose container ref
-  isCapturing?: boolean; // Flag to convert percentage to pixel positioning for html2canvas
+  qrCodeUrl: string;
+  onLayoutReady?: () => void;
+  containerRefCallback?: (ref: HTMLDivElement | null) => void;
+  isCapturing?: boolean;
+  profilePictureUrl?: string;
 }
 
 // Helper to fill templates
@@ -22,9 +22,9 @@ const fillTemplate = (template: string, runner: Runner) => {
   });
 };
 
-const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false }) => {
+const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false, profilePictureUrl }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [pixelPositions, setPixelPositions] = useState<{ [key: string]: { left: number; top: number; transform: string } }>({});
+  const [pixelPositions, setPixelPositions] = useState<{ [key: string]: { left: number; top: number } }>({});
 
   // Expose container ref to parent
   useEffect(() => {
@@ -73,7 +73,7 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
     function calculatePixelPositions(containerWidth: number, containerHeight: number) {
       if (!config.fields) return;
 
-      const positions: { [key: string]: { left: number; top: number; transform: string } } = {};
+      const positions: { [key: string]: { left: number; top: number } } = {};
 
       config.fields.forEach(field => {
         console.log('field', field);
@@ -110,7 +110,7 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
             topPx -= 7;
           } else if (rowNoValue && String(rowNoValue).startsWith('PACER')) {
             topPx -= 5;
-          }  else if (rowNoValue && String(rowNoValue).startsWith('VIP')) {
+          } else if (rowNoValue && String(rowNoValue).startsWith('VIP')) {
             topPx -= 10;
           } else if (field.toFitType !== 'scale' && !(isRowNoField && hasRowNoOffset)) {
             topPx -= 25;
@@ -118,7 +118,9 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
             topPx -= 23;
           }
         }
-
+        else if (field.key === 'profile_picture') {
+          topPx -= 0;
+        }
         else if (field.key === 'qr_code') {
           topPx -= 0;
         } else if (field.key === 'wave_start') {
@@ -129,7 +131,7 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
             const blockValue = runner.block;
             if (blockValue && String(blockValue).startsWith('Defer')) {
               topPx -= 12;
-            }else if (blockValue && String(blockValue).startsWith('SEMI-ELITE')) {
+            } else if (blockValue && String(blockValue).startsWith('SEMI-ELITE')) {
               topPx -= 5;
             } else if (blockValue && String(blockValue).startsWith('REFUND')) {
               topPx -= 5;
@@ -148,35 +150,7 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
           topPx -= 9;
         }
 
-        // Get field element to calculate actual dimensions for transform
-        const fieldElement = fullNameFieldRefs.current[field.id] ||
-          (containerRef.current?.querySelector(`[data-field-id="${field.id}"]`) as HTMLElement);
-
-        let transform = '';
-        // if (fieldElement) {
-        //   const fieldWidth = fieldElement.offsetWidth || 0;
-        //   const fieldHeight = fieldElement.offsetHeight || 0;
-
-        //   // Convert transform to pixel-based
-        //   if (field.toFitType === 'fixed') {
-        //     transform = `translate(-${fieldWidth}px, -${fieldHeight / 2}px)`;
-        //   } else if (field.textAlign === 'center') {
-        //     transform = `translate(-${fieldWidth / 2}px, -${fieldHeight / 2}px)`;
-        //   } else {
-        //     transform = `translate(0, -${fieldHeight / 2}px)`;
-        //   }
-        // } else {
-        //   // Fallback to percentage if element not found (shouldn't happen)
-        //   if (field.toFitType === 'fixed') {
-        //     transform = 'translate(-100%, -50%)';
-        //   } else if (field.textAlign === 'center') {
-        //     transform = 'translate(-50%, -50%)';
-        //   } else {
-        //     transform = 'translate(0, -50%)';
-        //   }
-        // }
-
-        positions[field.id] = { left: leftPx, top: topPx, transform };
+        positions[field.id] = { left: leftPx, top: topPx };
       });
 
       setPixelPositions(positions);
@@ -217,12 +191,9 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
   }, [onLayoutReady]);
 
   if (!config) {
-    console.error("BibPassTemplate: config is missing");
+    console.error("Template: config is missing");
     return <div className="text-red-500">Error: Configuration missing</div>;
   }
-
-  // Use the configured background color or fallback
-  const themeColor = config.backgroundColor || '#ffffff';
 
   // Helper function to get original content for a field
   const getOriginalContent = (field: any): string => {
@@ -271,8 +242,6 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
     const scaleToFitFields = config.fields?.filter(f => f.toFitType === 'scale') || [];
     if (scaleToFitFields.length === 0) return;
 
-    console.log('scaleToFitFields', scaleToFitFields);
-
     const timeoutIds: NodeJS.Timeout[] = [];
     const imageTimeoutIds: NodeJS.Timeout[] = [];
 
@@ -288,7 +257,6 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
 
       const containerWidth = container.offsetWidth;
       if (containerWidth === 0) {
-        console.log(`⚠️ Container width is 0 for field ${field.id}, retrying...`);
         setTimeout(() => measureAndAdjustField(field), 50);
         return;
       }
@@ -296,7 +264,6 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
       // ตรวจสอบว่า fieldDiv มี style ที่ถูกต้อง (whiteSpace: nowrap) ก่อนวัด
       const computedStyle = window.getComputedStyle(fieldDiv);
       if (computedStyle.whiteSpace !== 'nowrap') {
-        console.log(`⚠️ Field ${field.id} whiteSpace is not 'nowrap' yet, retrying...`);
         setTimeout(() => measureAndAdjustField(field), 50);
         return;
       }
@@ -304,8 +271,6 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
       const toFitWidth = field.toFitWidth || containerWidth * 0.9;
       const targetWidth = toFitWidth * 0.9;
       let currentFontSize = field.fontSize;
-
-      console.log(`📏 Field ${field.id}: Starting adjustment with fontSize=${currentFontSize}px, targetWidth=${targetWidth.toFixed(1)}px`);
 
       const adjustFontSize = () => {
         // ตรวจสอบอีกครั้งว่า fieldDiv ยังอยู่และมี style ที่ถูกต้อง
@@ -319,14 +284,12 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
         // ตรวจสอบว่า container width ไม่ได้เปลี่ยนไป
         const currentContainerWidth = currentContainer.offsetWidth;
         if (currentContainerWidth !== containerWidth) {
-          console.log(`⚠️ Container width changed from ${containerWidth}px to ${currentContainerWidth}px for field ${field.id}, remeasuring...`);
           setTimeout(() => measureAndAdjustField(field), 50);
           return;
         }
 
         const currentComputedStyle = window.getComputedStyle(currentFieldDiv);
         if (currentComputedStyle.whiteSpace !== 'nowrap') {
-          console.log(`⚠️ Field ${field.id} whiteSpace changed during adjustment, retrying...`);
           setTimeout(() => measureAndAdjustField(field), 50);
           return;
         }
@@ -336,8 +299,6 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
         console.log(`📐 Current width: ${fieldWidth.toFixed(1)}px, target: ${targetWidth.toFixed(1)}px, fontSize: ${currentFontSize}px`);
 
         if (fieldWidth <= targetWidth) {
-          console.log(`✅ Field ${field.id} fits at fontSize=${currentFontSize}px`);
-
           if (currentFontSize !== field.fontSize) {
             setFullNameFontSize(prev => ({
               ...prev,
@@ -355,13 +316,10 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
             [field.id]: currentFontSize
           }));
 
-          console.log(`🔽 Reducing fontSize to ${currentFontSize}px for field ${field.id}`);
-
           requestAnimationFrame(() => {
             setTimeout(() => adjustFontSize(), 0);
           });
         } else {
-          console.log(`⚠️ Font size reached minimum (${MIN_FONT_SIZE}px) for field ${field.id}, applying ellipsis`);
           applyEllipsis(field, currentFieldDiv);
         }
       };
@@ -414,7 +372,6 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
         [field.id]: MIN_FONT_SIZE
       }));
 
-      console.log(`✂️ Applied ellipsis for field ${field.id}: "${bestFit}"`);
     };
 
     const resetAllFields = () => {
@@ -476,8 +433,6 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
     const wrapToFitFields = config.fields?.filter(f => f.toFitType === 'wrap') || [];
     if (wrapToFitFields.length === 0) return;
 
-    console.log('wrapToFitFields', wrapToFitFields);
-
     const timeoutIds: NodeJS.Timeout[] = [];
     const imageTimeoutIds: NodeJS.Timeout[] = [];
 
@@ -486,13 +441,11 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
       const container = containerRef.current;
 
       if (!fieldDiv || !container) {
-        console.log(`⚠️ Field div or container not found for field ${field.id}`);
         return;
       }
 
       const containerWidth = container.offsetWidth;
       if (containerWidth === 0) {
-        console.log(`⚠️ Container width is 0 for field ${field.id}, retrying...`);
         setTimeout(() => measureAndAdjustField(field), 50);
         return;
       }
@@ -500,8 +453,6 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
       const toFitWidth = field.toFitWidth || containerWidth * 0.9;
       const targetWidth = toFitWidth * 0.9;
       const originalContent = getOriginalContent(field);
-
-      console.log(`📏 Field ${field.id}: Starting wrap adjustment, targetWidth=${targetWidth.toFixed(1)}px`);
 
       applyWrapping(field, originalContent, targetWidth);
     };
@@ -524,8 +475,6 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
         }
       }));
 
-      console.log(`📝 Applied wrapping for field ${field.id} with maxWidth=${maxWidth.toFixed(1)}px`);
-
       requestAnimationFrame(() => {
         setTimeout(() => {
           checkAndTrimIfNeeded(field, content, maxWidth);
@@ -543,13 +492,8 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
 
       const fieldWidth = fieldDiv.offsetWidth;
 
-      console.log(`📐 After wrapping - width: ${fieldWidth.toFixed(1)}px, target: ${maxWidth.toFixed(1)}px`);
-
       if (fieldWidth > maxWidth) {
-        console.log(`⚠️ Still exceeds after wrapping, applying ellipsis for field ${field.id}`);
         applyEllipsisWithWrapping(field, content, maxWidth);
-      } else {
-        console.log(`✅ Field ${field.id} fits with wrapping`);
       }
     };
 
@@ -599,7 +543,6 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
         [field.id]: bestFit
       }));
 
-      console.log(`✂️ Applied ellipsis with wrapping for field ${field.id}: "${bestFit}"`);
     };
 
     const resetAllFields = () => {
@@ -723,6 +666,37 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
               );
             }
 
+            if (field.key === 'profile_picture') {
+              const pixelPos = isCapturing && pixelPositions[field.id]
+                ? pixelPositions[field.id]
+                : null;
+
+              const profileWidth = field.profileWidth || 100;
+              const profileHeight = field.profileHeight || 100;
+              const profileShape = field.profileShape || 'circle'; // Default to circle
+              // Use profilePictureUrl prop if provided (from cropped image), otherwise use placeholder
+              const profileUrl = profilePictureUrl || field.profilePicture || `https://via.placeholder.com/${profileWidth}x${profileHeight}?text=Profile`;
+
+              const borderRadius = profileShape === 'circle' ? '50%' : '0';
+              
+              return (
+                  <img
+                    src={profileUrl}
+                    alt="Profile"
+                    style={{
+                      position: 'absolute',
+                      left: pixelPos ? `${pixelPos.left}px` : `${field.x}%`,
+                      top: pixelPos ? `${pixelPos.top}px` : `${field.y}%`,
+                      transform: 'translate(-50%, -50%)',
+                      width: `${profileWidth}px`,
+                      height: `${profileHeight}px`,
+                      zIndex: -1,
+                      borderRadius: profileShape === 'circle' ? '50%' : '0',
+                    }}
+                  />
+              );
+            }
+
             // Calculate dynamic settings based on toFitType
             let fontSize = field.fontSize;
             let displayContent = content;
@@ -775,8 +749,7 @@ const BibPassTemplate: React.FC<BibPassTemplateProps> = ({ runner, config, qrCod
             } else if (field.toFitType === 'fixed') {
               whiteSpace = 'nowrap';
             }
-            console.log('displayContent', displayContent);
-            if(displayContent === 'N/A') {
+            if (displayContent === 'N/A') {
               displayContent = '';
             }
             return (

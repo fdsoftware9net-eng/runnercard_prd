@@ -153,7 +153,7 @@ export const getRunnerByAccessKey = async (accessKey: string): Promise<ApiRespon
 };
 
 export const findRunnerByDetails = async (
-  details: { firstName?: string; lastName?: string; idCardNumber?: string; }
+  details: { firstName?: string; lastName?: string; idCardNumber?: string; bib?: number; }
 ): Promise<ApiResponse<Runner | null>> => {
   try {
     const supabaseClient = getSupabaseClient();
@@ -167,6 +167,8 @@ export const findRunnerByDetails = async (
         // ลบ % ออกทั้งหน้าและหลัง เพื่อให้เป็นการหาแบบตรงเป๊ะๆ
         .ilike('first_name', details.firstName.trim())
         .ilike('last_name', details.lastName.trim());
+    } else if (details.bib && details.bib.toString().trim()) {
+      queryBuilder = queryBuilder.eq('bib', details.bib.toString());
     } else {
       return { error: 'Either National ID or both First and Last Name are required.' };
     }

@@ -196,12 +196,16 @@ export interface AppleWalletConfig {
 
 export interface PassField {
   id: string;
-  key: keyof Runner | 'custom_text' | 'qr_code';
+  key: keyof Runner | 'custom_text' | 'qr_code' | 'profile_picture';
   label: string; // Display name in editor
   valueTemplate?: string; // For composite values like "{first_name} {last_name}"
   customText?: string; // For static text
+  profilePicture?: string; // For profile picture
+  profileWidth?: number; // For profile picture width
+  profileHeight?: number; // For profile picture height
+  profileShape?: 'circle' | 'square'; // Profile picture shape: circle or square
   // New: Support for multiple data sources
-  dataSources?: (keyof Runner | 'custom_text')[]; // Array of data source keys
+  dataSources?: (keyof Runner | 'custom_text' | 'profile_picture')[]; // Array of data source keys
   separator?: string; // Separator string between data sources (default: ' ')
   x: number; // Percentage (0-100)
   y: number; // Percentage (0-100)
@@ -271,6 +275,10 @@ export interface WalletConfig {
   // New: Runner Lookup Page Config
   lookup_page_title?: string;
   lookup_page_instructions?: string;
+
+  // New: Bib Pass Config (stored in JSONB)
+  web_bib_templates?: WebPassConfig[]; // List of available templates
+  template_assignment_rules_bib?: TemplateAssignmentRule[]; // Rules for auto-assigning templates
 }
 
 declare global {
