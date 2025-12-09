@@ -293,7 +293,10 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
     // Prepare update data
     const updateData: Partial<Runner> = { ...editForm };
 
-    // If idCardNumber is provided, hash it and update id_card_hash
+    // Handle id_card_hash:
+    // - If idCardNumber is provided, hash it and update id_card_hash
+    // - If idCardNumber is empty (not provided), preserve the original hash
+    //   (don't remove it unless explicitly cleared by user)
     if (idCardNumber.trim()) {
       try {
         const hashedId = await hashNationalId(idCardNumber.trim());
@@ -303,9 +306,13 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
         setUpdateError(`Failed to hash ID card number: ${error.message || 'Unknown error'}`);
         return;
       }
-    } else if (idCardNumber === '' && isEditingRunner.id_card_hash) {
-      // If idCardNumber is cleared, remove the hash
-      updateData.id_card_hash = null;
+    } else {
+      // If idCardNumber is empty, preserve the original hash from isEditingRunner
+      // This ensures that editing other fields won't accidentally remove the hash
+      if (isEditingRunner.id_card_hash) {
+        updateData.id_card_hash = isEditingRunner.id_card_hash;
+      }
+      // If there was no original hash, we don't need to set it (it will remain null/undefined)
     }
 
     const result = await updateRunnerService({ id: isEditingRunner.id, ...updateData });
