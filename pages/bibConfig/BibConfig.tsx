@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { getWalletConfig, updateWalletConfig, uploadPassAsset } from '../services/supabaseService';
-import { WalletConfig, WebPassConfig, Runner, PassField, TemplateAssignmentRule } from '../types';
-import Input from './Input';
-import Button from './Button';
-import LoadingSpinner from './LoadingSpinner';
-import BibPassTemplate from './BibPassTemplate';
-import Select from './Select';
-import { DEFAULT_CONFIG, RUNNER_COLUMNS } from '../defaults';
+import { getWalletConfig, updateWalletConfig, uploadPassAsset } from '../../services/supabaseService';
+import { WalletConfig, WebPassConfig, Runner, PassField, TemplateAssignmentRule } from '../../types';
+import Input from '../../components/Input';
+import Button from '../../components/Button';
+import LoadingSpinner from '../../components/LoadingSpinner';
+import BibPassTemplate from '../../components/BibPassTemplate';
+import Select from '../../components/Select';
+import { DEFAULT_CONFIG, RUNNER_COLUMNS } from '../../defaults';
 import { v4 as uuidv4 } from 'uuid';
 
 const WEB_PREVIEW_RUNNER_VIP = {
@@ -139,7 +139,7 @@ const ImageUploadInput: React.FC<{
     );
 };
 
-const WebPassConfigPage: React.FC = () => {
+const BibConfigPage: React.FC = () => {
     const [fullConfig, setFullConfig] = useState<WalletConfig | null>(null);
     const [webConfig, setWebConfig] = useState<WebPassConfig>({
         id: '',
@@ -174,18 +174,7 @@ const WebPassConfigPage: React.FC = () => {
         if (result.data) {
             setFullConfig(result.data);
 
-            let loadedTemplates = result.data.web_pass_templates || [];
-
-            // Migration: If no templates but old config exists, use it
-            if (loadedTemplates.length === 0 && result.data.web_pass_config) {
-                const oldConfig = result.data.web_pass_config as any;
-                loadedTemplates = [{
-                    ...oldConfig,
-                    id: 'default',
-                    name: 'Default Template',
-                    fields: oldConfig.fields || []
-                }];
-            }
+            let loadedTemplates = result.data.web_bib_templates || [];
 
             // Fallback if absolutely nothing
             if (loadedTemplates.length === 0) {
@@ -197,7 +186,7 @@ const WebPassConfigPage: React.FC = () => {
             }
 
             setTemplates(loadedTemplates);
-            setRules(result.data.template_assignment_rules || []);
+            setRules(result.data.template_assignment_rules_bib || []);
 
             // Set initial template
             const initialTemplate = loadedTemplates[0];
@@ -289,8 +278,8 @@ const WebPassConfigPage: React.FC = () => {
 
         const updatedConfig: WalletConfig = {
             ...fullConfig,
-            web_pass_templates: finalTemplates,
-            template_assignment_rules: rules,
+            web_bib_templates: finalTemplates,
+            template_assignment_rules_bib: rules,
             web_pass_config: webConfig // Keep for backward compat if needed, or just last edited
         };
 
@@ -324,10 +313,20 @@ const WebPassConfigPage: React.FC = () => {
     };
 
     const updateField = (id: string, updates: Partial<PassField>) => {
-        setWebConfig(prev => ({
-            ...prev,
-            fields: prev.fields.map(f => f.id === id ? { ...f, ...updates } : f)
-        }));
+        setWebConfig(prev => {
+            const updatedFields = prev.fields.map(f => {
+                if (f.id === id) {
+                    const updated = { ...f, ...updates };
+                    console.log('Updating field:', { id, updates, updated });
+                    return updated;
+                }
+                return f;
+            });
+            return {
+                ...prev,
+                fields: updatedFields
+            };
+        });
     };
 
     const removeField = (id: string) => {
@@ -405,8 +404,8 @@ const WebPassConfigPage: React.FC = () => {
         <div className="p-6 bg-gray-800 rounded-lg shadow-md max-w-7xl mx-auto min-h-screen flex flex-col">
             <div className="flex justify-between items-center mb-6">
                 <div>
-                    <h2 className="text-2xl font-bold text-white">Web Pass Designer</h2>
-                    <p className="text-gray-400 text-sm mt-1">Design multiple pass templates for different runner categories.</p>
+                    <h2 className="text-2xl font-bold text-white">Web Bib Designer</h2>
+                    <p className="text-gray-400 text-sm mt-1">Design multiple bib templates for different runner categories.</p>
                 </div>
                 <div className="flex items-center space-x-4">
                     {successMessage && <span className="text-green-400 font-medium animate-fade-in">{successMessage}</span>}
@@ -669,6 +668,7 @@ const WebPassConfigPage: React.FC = () => {
                                     >
                                         <option value="custom_text">Custom Text</option>
                                         <option value="qr_code">QR Code</option>
+                                        <option value="profile_picture">Profile Picture</option>
                                         <optgroup label="Runner Data">
                                             {RUNNER_COLUMNS.map(col => <option key={col} value={col}>{col}</option>)}
                                         </optgroup>
@@ -740,7 +740,7 @@ const WebPassConfigPage: React.FC = () => {
                                     />
                                 )}
 
-                                {selectedField.key !== 'qr_code' && (
+                                {(selectedField.key !== 'qr_code' && selectedField.key !== 'profile_picture') && (
                                     <>
                                         <div className="grid grid-cols-2 gap-4">
                                             <Input
@@ -805,6 +805,60 @@ const WebPassConfigPage: React.FC = () => {
                                                 <option value="sans-serif">Sans-serif</option>
                                             </Select>
                                         </div>
+                                    </>
+                                )}
+
+                                {selectedField.key === 'profile_picture' && (
+                                    <>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <Input
+                                            id="profileWidth"
+                                            name="profileWidth"
+                                            label="Width (px)"
+                                            type="number"
+                                            value={selectedField.profileWidth || 100}
+                                            onChange={(e) => updateField(selectedField.id, { profileWidth: Number(e.target.value) })}
+                                        />
+                                        <Input
+                                            id="profileHeight"
+                                            name="profileHeight"
+                                            label="Height (px)"
+                                            type="number"
+                                            value={selectedField.profileHeight || 100}
+                                            onChange={(e) => updateField(selectedField.id, { profileHeight: Number(e.target.value) })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Shape</label>
+                                        <div className="flex gap-4">
+                                            <div className="flex items-center space-x-2">
+                                                <input
+                                                    type="radio"
+                                                    id="profileShape-circle"
+                                                    name={`profileShape-${selectedField.id}`}
+                                                    checked={!selectedField.profileShape || selectedField.profileShape === 'circle'}
+                                                    onChange={() => updateField(selectedField.id, { profileShape: 'circle' })}
+                                                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                />
+                                                <label htmlFor="profileShape-circle" className="text-sm text-gray-300 select-none cursor-pointer">
+                                                    Circle
+                                                </label>
+                                            </div>
+                                            <div className="flex items-center space-x-2">
+                                                <input
+                                                    type="radio"
+                                                    id="profileShape-square"
+                                                    name={`profileShape-${selectedField.id}`}
+                                                    checked={selectedField.profileShape === 'square'}
+                                                    onChange={() => updateField(selectedField.id, { profileShape: 'square' })}
+                                                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                />
+                                                <label htmlFor="profileShape-square" className="text-sm text-gray-300 select-none cursor-pointer">
+                                                    Square
+                                                </label>
+                                            </div>
+                                        </div>
+                                    </div>
                                     </>
                                 )}
                                 {selectedField.key === 'qr_code' && (
@@ -988,24 +1042,55 @@ const WebPassConfigPage: React.FC = () => {
                                     )}
 
                                     {/* Interactive Overlay Layer - Matches the template's field positions */}
-                                    {webConfig.fields.map(field => (
-                                        <div
-                                            key={`overlay-${field.id}`}
-                                            onMouseDown={(e) => handleMouseDown(e, field.id)}
-                                            className={`absolute cursor-move border-2 ${selectedFieldId === field.id ? 'border-blue-500 bg-blue-500/20' : 'border-transparent hover:border-white/50'}`}
-                                            style={{
-                                                left: `${field.x}%`,
-                                                top: `${field.y}%`,
-                                                width: field.key === 'qr_code' ? `${field.fontSize * 4}px` : (field.width ? `${field.width}%` : 'auto'),
-                                                height: field.key === 'qr_code' ? `${field.fontSize * 4}px` : 'auto',
-                                                minWidth: '20px',
-                                                minHeight: '20px',
-                                                transform: 'translate(-50%, -50%)', // Always center anchor for easier dragging logic
-                                                zIndex: 50
-                                            }}
-                                            title={field.label}
-                                        />
-                                    ))}
+                                    {webConfig.fields.map(field => {
+                                        // Calculate overlay dimensions based on field type
+                                        let overlayWidth = field.width ? `${field.width}%` : 'auto';
+                                        let overlayHeight = 'auto';
+                                        
+                                        if (field.key === 'qr_code') {
+                                            overlayWidth = `${field.fontSize * 4}px`;
+                                            overlayHeight = `${field.fontSize * 4}px`;
+                                        } else if (field.key === 'profile_picture') {
+                                            overlayWidth = `${field.profileWidth || 100}px`;
+                                            overlayHeight = `${field.profileHeight || 100}px`;
+                                        }
+
+                                        return (
+                                            <div
+                                                key={`overlay-${field.id}`}
+                                                onMouseDown={(e) => handleMouseDown(e, field.id)}
+                                                className={`absolute cursor-move border-2 ${selectedFieldId === field.id ? 'border-blue-500 bg-blue-500/20' : 'border-transparent hover:border-white/50'}`}
+                                                style={{
+                                                    left: `${field.x}%`,
+                                                    top: `${field.y}%`,
+                                                    width: overlayWidth,
+                                                    height: overlayHeight,
+                                                    minWidth: '20px',
+                                                    minHeight: '20px',
+                                                    transform: 'translate(-50%, -50%)', // Always center anchor for easier dragging logic
+                                                    zIndex: 50,
+                                                    borderRadius: field.profileShape === 'circle' ? '50%' : '0'
+                                                }}
+                                                title={field.key === 'profile_picture' 
+                                                    ? `${field.label} (${overlayWidth}x${overlayHeight})`
+                                                    : field.label}
+                                            >
+                                                {/* Show size indicator for profile_picture when selected */}
+                                                {selectedFieldId === field.id && field.key === 'profile_picture' && (
+                                                    <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 bg-blue-500 whitespace-nowrap z-50"
+                                                    >
+                                                        {overlayWidth} × {overlayHeight}
+                                                    </div>
+                                                )}
+                                                {/* Show size indicator for qr_code when selected */}
+                                                {selectedFieldId === field.id && field.key === 'qr_code' && (
+                                                    <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 bg-blue-500 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-50">
+                                                        {field.fontSize * 4} × {field.fontSize * 4}px
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
 
                                     {/* To Fit Width Indicator - Red border showing desired width */}
                                     {webConfig.fields
@@ -1053,4 +1138,4 @@ const WebPassConfigPage: React.FC = () => {
     );
 };
 
-export default WebPassConfigPage;
+export default BibConfigPage;

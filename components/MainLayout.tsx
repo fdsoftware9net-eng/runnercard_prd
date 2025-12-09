@@ -27,6 +27,9 @@ const MainLayout: React.FC = () => {
                         <Link to="/url-config">
                             <Button variant="secondary" size="sm">Lookup Page</Button>
                         </Link>
+                        <Link to="/bib-config">
+                            <Button variant="secondary" size="sm">Bib Config</Button>
+                        </Link>
                         <Link to="/web-pass-config">
                             <Button variant="secondary" size="sm">Web Pass</Button>
                         </Link>
