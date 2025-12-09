@@ -21,6 +21,7 @@ import RunnerLookupPage from './components/RunnerLookupPage';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
 import CropBibCard from './pages/share/CropBibCard';
 import SharePage from './pages/share';
+import BibConfigPage from './pages/bibConfig/BibConfig';
 
 
 // AuthGuard to protect routes
@@ -107,6 +108,7 @@ const App: React.FC = () => {
             <Route path="/apple-wallet-config" element={<AppleWalletConfigPage />} />
             <Route path="/web-pass-config" element={<WebPassConfigPage />} />
             <Route path="/url-config" element={<UrlConfigPage />} />
+            <Route path="/bib-config" element={<BibConfigPage />} />
           </Route>
         </Route>
         

@@ -644,7 +644,7 @@ function CropBibCard() {
                                 width: 'fit-content',
                                 margin: '0 auto',
                                 position: 'relative',
-                                display: 'inline-block',
+                                // display: 'inline-block',
                                 touchAction: 'none', // ป้องกัน default touch behaviors
                                 backgroundColor: 'transparent !important'
                             }}
@@ -681,8 +681,8 @@ function CropBibCard() {
                                     />
                                 </div>
                             ) : (
-                                <div style={{ position: 'relative', zIndex: 2, pointerEvents: 'none' }}>
-                                    <div className="flex items-center justify-center h-64 text-gray-400">
+                                <div class="flex" style={{ position: 'relative', zIndex: 2, pointerEvents: 'none', height: '50vh' }}>
+                                    <div className="flex items-center justify-center text-gray-400">
                                         {isRenderingTemplate ? 'กำลังโหลด...' : isTemplateReady ? 'กำลังตัดรูปภาพ...' : 'กำลังโหลด...'}
                                     </div>
                                 </div>
