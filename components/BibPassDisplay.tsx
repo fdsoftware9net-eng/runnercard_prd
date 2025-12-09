@@ -384,7 +384,15 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         if (!response.ok) throw new Error(data.error || data.message);
 
         if (data.saveToGoogleWalletLink) {
-          window.open(data.saveToGoogleWalletLink, '_blank');
+          // ใช้ anchor element แทน window.open() เพื่อหลีกเลี่ยง popup blocker บน mobile Safari
+          // เหมือนกับวิธีที่ใช้กับ Apple Wallet
+          const link = document.createElement('a');
+          link.href = data.saveToGoogleWalletLink;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
         } else {
           setWalletError('Failed to get Google Wallet link.');
         }
