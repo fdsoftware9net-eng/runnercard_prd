@@ -384,15 +384,9 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         if (!response.ok) throw new Error(data.error || data.message);
 
         if (data.saveToGoogleWalletLink) {
-          // ใช้ anchor element แทน window.open() เพื่อหลีกเลี่ยง popup blocker บน mobile Safari
-          // เหมือนกับวิธีที่ใช้กับ Apple Wallet
-          const link = document.createElement('a');
-          link.href = data.saveToGoogleWalletLink;
-          link.target = '_blank';
-          link.rel = 'noopener noreferrer';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
+          // ใช้ window.location.href เพื่อ redirect ไปที่ Google Wallet link โดยตรง
+          // Safari mobile จะไม่ block การ redirect แบบนี้ และ Google Wallet link จะเปิดในแอปหรือ browser ใหม่อยู่แล้ว
+          window.location.href = data.saveToGoogleWalletLink;
         } else {
           setWalletError('Failed to get Google Wallet link.');
         }
@@ -584,7 +578,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                       : (isThai ? 'บันทึกเป็นรูปภาพ' : 'Save as Image')}
                   </Button>
 
-                  <div className="border-t border-gray-700 pt-4">
+                  {/* <div className="border-t border-gray-700 pt-4">
                     <h3 className="text-lg font-semibold mb-3 text-white">
                       {isThai ? 'เพิ่มลงในกระเป๋าเงิน' : 'Add to Wallet'}
                     </h3>
@@ -601,7 +595,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                           : (isThai ? 'เพิ่มลงใน Apple Wallet' : 'Add to Apple Wallet')}
                       </Button>
                     </div>
-                  </div>
+                  </div> */}
                 </div>
               </>
             );
