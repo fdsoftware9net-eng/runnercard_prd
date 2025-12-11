@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Runner } from '../types';
-import { getRunners, updateRunner as updateRunnerService, checkWalletPass } from '../services/supabaseService';
+import { getRunners, updateRunner as updateRunnerService, logUserActivity } from '../services/supabaseService';
 import { hashNationalId } from '../utils/hashing';
 import Button from './Button';
 import Input from './Input';
@@ -327,6 +327,14 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
 
     if (result.error) {
       setUpdateError(result.error);
+      
+      // ✅ Log error (เก็บแค่ runner_id)
+      await logUserActivity({
+        activity_type: 'update_runner',
+        runner_id: isEditingRunner.id || null,
+        success: false,
+        error_message: result.error
+      });
     } else {
       // No explicit error from service. Check result.data.
       if (result.data) { // Data returned, means an update actually happened
@@ -363,6 +371,15 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
           // Don't block the save flow if check fails
         }
 
+        // ✅ Log success (เก็บแค่ runner_id)
+        console.log('📝 Logging runner update:', { runner_id: isEditingRunner.id });
+        await logUserActivity({
+          activity_type: 'update_runner',
+          runner_id: isEditingRunner.id || null,
+          success: true
+        });
+        console.log('✅ Runner update logged successfully');
+        
         setIsEditModalOpen(false);
         setIsEditingRunner(null);
         setEditForm({});
@@ -373,6 +390,14 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
         // Frontend detected changes (hasFormChanges was true), but DB considered them a no-op.
         // This is not an error, so we proceed as if successful from a user perspective.
         console.warn(`Update for runner ID ${isEditingRunner.id} resulted in no *effective* database changes.`);
+        
+        // ✅ Log success (แม้ว่าจะไม่มี effective changes แต่ก็ถือว่าสำเร็จ)
+        await logUserActivity({
+          activity_type: 'update_runner',
+          runner_id: isEditingRunner.id || null,
+          success: true
+        });
+        
         setIsEditModalOpen(false);
         setIsEditingRunner(null);
         setEditForm({});

@@ -1,6 +1,6 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Runner, ApiResponse, WalletConfig, CreateActivityLogParams, UserActivityLog, ActivityStatistics, DailyStatistics } from '../types'; 
+import { Runner, ApiResponse, WalletConfig, CreateActivityLogParams, UserActivityLog, ActivityStatistics, DailyStatistics, RunnerUpdate } from '../types'; 
 import { hashNationalId } from '../utils/hashing';
 import { getConfig } from '../constants';
 
@@ -426,17 +426,33 @@ export const logUserActivity = async (params: CreateActivityLogParams): Promise<
       logData.ip_address = params.ip_address || null;
     }
 
-    const { error } = await supabaseClient
+    console.log('📝 Attempting to log activity:', {
+      activity_type: logData.activity_type,
+      runner_id: logData.runner_id,
+      success: logData.success
+    });
+
+    const { data, error } = await supabaseClient
       .from('user_activity_logs')
-      .insert(logData);
+      .insert(logData)
+      .select();
 
     if (error) {
       // Log error but don't throw to avoid impacting UX
-      console.warn('Failed to log user activity:', error.message);
+      console.error('❌ Failed to log user activity:', error);
+      console.error('Error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      });
+    } else {
+      console.log('✅ Activity logged successfully:', data);
     }
   } catch (error: any) {
     // Fail silently to avoid impacting user experience
-    console.warn('Error logging user activity:', error.message);
+    console.error('❌ Exception logging user activity:', error);
+    console.error('Error stack:', error.stack);
   }
 };
 
@@ -470,6 +486,15 @@ export const getActivityStatistics = async (
           successful_downloads: 0,
           failed_downloads: 0,
           download_success_rate: 0,
+          // ✅ เพิ่ม: Wallet Statistics defaults
+          total_google_wallet: 0,
+          successful_google_wallet: 0,
+          failed_google_wallet: 0,
+          google_wallet_success_rate: 0,
+          total_apple_wallet: 0,
+          successful_apple_wallet: 0,
+          failed_apple_wallet: 0,
+          apple_wallet_success_rate: 0,
         },
       };
     }
@@ -487,6 +512,15 @@ export const getActivityStatistics = async (
         successful_downloads: Number(result.successful_downloads) || 0,
         failed_downloads: Number(result.failed_downloads) || 0,
         download_success_rate: Number(result.download_success_rate) || 0,
+        // ✅ เพิ่ม: Wallet Statistics
+        total_google_wallet: Number(result.total_google_wallet) || 0,
+        successful_google_wallet: Number(result.successful_google_wallet) || 0,
+        failed_google_wallet: Number(result.failed_google_wallet) || 0,
+        google_wallet_success_rate: Number(result.google_wallet_success_rate) || 0,
+        total_apple_wallet: Number(result.total_apple_wallet) || 0,
+        successful_apple_wallet: Number(result.successful_apple_wallet) || 0,
+        failed_apple_wallet: Number(result.failed_apple_wallet) || 0,
+        apple_wallet_success_rate: Number(result.apple_wallet_success_rate) || 0,
       },
     };
   } catch (error: any) {
@@ -518,6 +552,9 @@ export const getDailyStatistics = async (
       date: item.date, // Already in YYYY-MM-DD format
       lookups: Number(item.lookups) || 0,
       downloads: Number(item.downloads) || 0,
+      // ✅ เพิ่ม: Wallet Downloads
+      google_wallet: Number(item.google_wallet) || 0,
+      apple_wallet: Number(item.apple_wallet) || 0,
     }));
 
     return { data: result };
@@ -539,5 +576,48 @@ export const getGoogleWalletConfigIssuerId = async (): Promise<ApiResponse<strin
   catch (error: any) {
     console.error('Error fetching Google Wallet config issuer ID:', error);
     return { error: error.message || 'Failed to fetch Google Wallet config issuer ID.' };
+  }
+};
+/**
+ * ดึงรายการ runner ที่ถูกแก้ไข
+ * @param days จำนวนวันที่ต้องการดึงข้อมูล (default: 30)
+ * @param limit จำนวนสูงสุดของ records (default: 100)
+ */
+export const getRunnerUpdates = async (
+  days: number = 30,
+  limit: number = 100
+): Promise<ApiResponse<RunnerUpdate[]>> => {
+  try {
+    const supabaseClient = getSupabaseClient();
+    
+    console.log('🔍 Fetching runner updates:', { days, limit });
+    
+    const { data, error } = await supabaseClient.rpc('get_runner_updates', {
+      days_back: days,
+      limit_count: limit,
+    });
+
+    if (error) {
+      console.error('❌ RPC Error:', error);
+      throw new Error(error.message);
+    }
+
+    console.log('📊 Raw data from RPC:', data);
+
+    const result = (data || []).map((item: any) => ({
+      runner_id: item.runner_id,
+      runner_bib: item.runner_bib || 'N/A',
+      runner_name: item.runner_name || 'Unknown',
+      update_count: Number(item.update_count) || 0,
+      last_updated_at: item.last_updated_at,
+      success_count: Number(item.success_count) || 0,
+      failed_count: Number(item.failed_count) || 0,
+    }));
+
+    console.log('✅ Processed runner updates:', result.length, 'runners');
+    return { data: result };
+  } catch (error: any) {
+    console.error('❌ Error fetching runner updates:', error);
+    return { error: error.message || 'Failed to fetch runner updates.' };
   }
 };

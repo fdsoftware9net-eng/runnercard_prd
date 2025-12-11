@@ -62,7 +62,7 @@ export interface BibPassData {
 
 // --- User Activity Log Interfaces ---
 
-export type ActivityType = 'lookup' | 'save_image' | 'add_google_wallet' | 'add_apple_wallet' | 'view_pass';
+export type ActivityType = 'lookup' | 'save_image' | 'add_google_wallet' | 'add_apple_wallet' | 'view_pass' | 'update_runner';
 export type SearchMethod = 'name' | 'id_card';
 
 export interface ActivityLogMetadata {
@@ -116,12 +116,35 @@ export interface ActivityStatistics {
   successful_downloads: number;
   failed_downloads: number;
   download_success_rate: number;
+  // ✅ เพิ่ม: Wallet Statistics
+  total_google_wallet: number;
+  successful_google_wallet: number;
+  failed_google_wallet: number;
+  google_wallet_success_rate: number;
+  total_apple_wallet: number;
+  successful_apple_wallet: number;
+  failed_apple_wallet: number;
+  apple_wallet_success_rate: number;
 }
 
 export interface DailyStatistics {
   date: string;
   lookups: number;
   downloads: number;
+  // ✅ เพิ่ม: Wallet Downloads
+  google_wallet: number;
+  apple_wallet: number;
+}
+
+// ✅ เพิ่ม: Interface สำหรับ Runner Update
+export interface RunnerUpdate {
+  runner_id: string;
+  runner_bib: string | null;
+  runner_name: string | null;
+  update_count: number;
+  last_updated_at: string;
+  success_count: number;
+  failed_count: number;
 }
 
 

@@ -361,6 +361,11 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     const functionUrl = walletType === 'google' ? GOOGLE_WALLET_EDGE_FUNCTION_URL : APPLE_WALLET_EDGE_FUNCTION_URL;
     const fullUrl = `${config.SUPABASE_URL}${functionUrl}`;
 
+    console.log('fullUrl', fullUrl);
+
+    // ✅ กำหนด activity type สำหรับ logging
+    const activityType = walletType === 'google' ? 'add_google_wallet' : 'add_apple_wallet';
+
     if (walletType === 'google') {
       setIsAddingToGoogleWallet(true);
       try {
@@ -407,13 +412,50 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
           }
 
           // window.open(data.saveToGoogleWalletLink, '_blank');
+          // ✅ Log success ก่อน redirect
+          await logUserActivity({
+            activity_type: activityType,
+            runner_id: runner.id || null,
+            success: true,
+            metadata: {
+              wallet_type: walletType,
+              pass_url: data.saveToGoogleWalletLink,
+              user_agent: navigator.userAgent
+            }
+          });
+
+          // ใช้ window.location.href เพื่อ redirect ไปที่ Google Wallet link โดยตรง
+          // Safari mobile จะไม่ block การ redirect แบบนี้ และ Google Wallet link จะเปิดในแอปหรือ browser ใหม่อยู่แล้ว
           window.location.href = data.saveToGoogleWalletLink;
 
         } else {
+          // ✅ Log error - no link returned
+          await logUserActivity({
+            activity_type: activityType,
+            runner_id: runner.id || null,
+            success: false,
+            error_message: 'Failed to get Google Wallet link.',
+            metadata: {
+              wallet_type: walletType
+            }
+          });
+
           setWalletError('Failed to get Google Wallet link.');
         }
       } catch (err: any) {
         console.error('Google Wallet Error:', err);
+        
+        // ✅ Log error
+        await logUserActivity({
+          activity_type: activityType,
+          runner_id: runner.id || null,
+          success: false,
+          error_message: err.message || 'Unknown error',
+          metadata: {
+            wallet_type: walletType
+          }
+        });
+
         setWalletError(err.message);
       } finally {
         setIsAddingToGoogleWallet(false);
@@ -431,6 +473,19 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
 
         if (isSafari || isIOS) {
+          // ✅ Log success ก่อน redirect สำหรับ Safari/iOS
+          await logUserActivity({
+            activity_type: activityType,
+            runner_id: runner.id || null,
+            success: true,
+            metadata: {
+              wallet_type: walletType,
+              pass_url: downloadUrl,
+              user_agent: navigator.userAgent,
+              platform: isIOS ? 'ios' : 'safari'
+            }
+          });
+
           // ✅ สำหรับ Safari: ใช้ direct link ไปที่ API endpoint
           // Safari จะรู้จัก application/vnd.apple.pkpass และเปิดใน Wallet app อัตโนมัติ
           console.log('Using direct link for Safari/iOS');
@@ -476,6 +531,20 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
             errorMessage = errorText || `Server returned ${response.status}`;
           }
 
+          
+          // ✅ Log error
+          await logUserActivity({
+            activity_type: activityType,
+            runner_id: runner.id || null,
+            success: false,
+            error_message: errorMessage,
+            metadata: {
+              wallet_type: walletType,
+              http_status: response.status,
+              error_data: errorData
+            }
+          });
+          
           // สร้าง error object ที่มี troubleshooting info
           const error = new Error(errorMessage) as any;
           error.troubleshooting = errorData.troubleshooting;
@@ -486,12 +555,38 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         // 5. เช็ค Content-Type ว่าเป็น pkpass จริงไหม
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('application/vnd.apple.pkpass')) {
+          // ✅ Log error - invalid content type
+          await logUserActivity({
+            activity_type: activityType,
+            runner_id: runner.id || null,
+            success: false,
+            error_message: 'Invalid file type returned from server.',
+            metadata: {
+              wallet_type: walletType,
+              content_type: contentType
+            }
+          });
+
           throw new Error('Invalid file type returned from server.');
         }
 
         // 6. แปลงเป็น Blob และดาวน์โหลด
         const blob = await response.blob();
         const blobUrl = window.URL.createObjectURL(blob);
+
+        // ✅ Log success ก่อน download
+        await logUserActivity({
+          activity_type: activityType,
+          runner_id: runner.id || null,
+          success: true,
+          metadata: {
+            wallet_type: walletType,
+            pass_url: downloadUrl,
+            blob_size: blob.size,
+            user_agent: navigator.userAgent,
+            platform: 'desktop'
+          }
+        });
 
         // ✅ สำหรับ Desktop/Android (non-Safari): ใช้ <a download>
         const link = document.createElement('a');
@@ -509,6 +604,21 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       } catch (err: any) {
         console.error('Apple Wallet Error:', err);
 
+        
+        // ✅ Log error (ถ้ายังไม่ได้ log ใน catch block ด้านบน)
+        // ตรวจสอบว่า error นี้ยังไม่ได้ log หรือไม่ (โดยดูจาก error object)
+        if (!err.logged) {
+          await logUserActivity({
+            activity_type: activityType,
+            runner_id: runner.id || null,
+            success: false,
+            error_message: err.message || 'Unknown error',
+            metadata: {
+              wallet_type: walletType
+            }
+          });
+        }
+        
         // ✅ เพิ่ม: แสดง error message ที่ชัดเจนขึ้น
         let errorMessage = err.message || 'Failed to generate Apple Wallet pass.';
 
