@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Runner } from '../types';
-import { getRunners, updateRunner as updateRunnerService } from '../services/supabaseService';
+import { getRunners, updateRunner as updateRunnerService, checkWalletPass } from '../services/supabaseService';
 import { hashNationalId } from '../utils/hashing';
 import Button from './Button';
 import Input from './Input';
-import Select from './Select'; // Import the new Select component
 import LoadingSpinner from './LoadingSpinner';
 import Modal from './Modal';
+import { getConfig } from '@/constants';
 
 interface RunnerTableProps {
   refreshDataTrigger: number;
@@ -15,6 +15,9 @@ interface RunnerTableProps {
 
 const RUNNERS_PER_PAGE = 20; // For basic pagination
 const APP_BASE_URL: string = window.location.origin;
+
+const GOOGLE_WALLET_EDGE_FUNCTION_URL = '/functions/v1/generate-google-wallet-pass';
+const APPLE_WALLET_EDGE_FUNCTION_URL = '/functions/v1/generate-apple-wallet-pass';
 
 // Define the order of columns for CSV export
 const EXPORT_COLUMN_KEYS: Array<keyof Runner> = [
@@ -167,10 +170,10 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
           return (isEditingRunner.id_card_hash || '') !== (editForm.id_card_hash || '');
         }
       };
-      
+
       // For now, check other fields first
       const otherFieldsChanged = !areFormsEqual(editForm, isEditingRunner);
-      
+
       // If idCardNumber is provided, we need to check hash change
       if (idCardNumber.trim()) {
         hashNationalId(idCardNumber.trim()).then(newHash => {
@@ -293,6 +296,11 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
     // Prepare update data
     const updateData: Partial<Runner> = { ...editForm };
 
+    // Remove google_wallet_pass_id from updateData if it exists
+    // This field is set by the system when creating Google Wallet passes, not by user edits
+    // By not including it in the update, Supabase will preserve the existing value
+    delete updateData.google_wallet_pass_id;
+
     // Handle id_card_hash:
     // - If idCardNumber is provided, hash it and update id_card_hash
     // - If idCardNumber is empty (not provided), preserve the original hash
@@ -316,13 +324,45 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
     }
 
     const result = await updateRunnerService({ id: isEditingRunner.id, ...updateData });
-    setLoading(false);
 
     if (result.error) {
       setUpdateError(result.error);
     } else {
       // No explicit error from service. Check result.data.
       if (result.data) { // Data returned, means an update actually happened
+        console.log('result.data', result.data);
+        // Check if runner has a Google Wallet pass and update if needed
+        try {
+          const checkResult = await checkWalletPass(result.data.id);
+
+          //เช้คว่า runner มี pass หรือยัง
+          if (checkResult.data) {
+            const walletType = 'google';
+            const config = getConfig();
+            const functionUrl = walletType === 'google' ? GOOGLE_WALLET_EDGE_FUNCTION_URL : APPLE_WALLET_EDGE_FUNCTION_URL;
+            const fullUrl = `${config.SUPABASE_URL}${functionUrl}`;
+
+            const response = await fetch(fullUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${config.SUPABASE_ANON_KEY}`
+              },
+              body: JSON.stringify({ runnerId: result.data.id, updatePass: true }),
+            });
+            const updatePassResult = await response.json();
+            console.log('updatePassResult', updatePassResult);
+            setLoading(false);
+          } else {
+            // Runner doesn't have a Google Wallet pass yet - no action needed
+            setLoading(false);
+            console.log('Runner does not have a Google Wallet pass yet.');
+          }
+        } catch (checkError: any) {
+          console.warn('Failed to check wallet pass:', checkError);
+          // Don't block the save flow if check fails
+        }
+
         setIsEditModalOpen(false);
         setIsEditingRunner(null);
         setEditForm({});

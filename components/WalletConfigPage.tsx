@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { getWalletConfig, updateWalletConfig } from '../services/supabaseService';
-import { WalletConfig, FieldMappingsConfig, TextModuleMapping, Runner, AppleWalletConfig, WebPassConfig, InformationRow } from '../types';
+import { WalletConfig, FieldMappingsConfig, TextModuleMapping, Runner } from '../types';
 import Input from './Input';
 import Button from './Button';
 import LoadingSpinner from './LoadingSpinner';

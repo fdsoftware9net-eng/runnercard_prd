@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
-import { getRunnerByAccessKey, updateRunner as updateRunnerService, getWalletConfig, logUserActivity } from '../services/supabaseService';
+import { getRunnerByAccessKey, updateRunner as updateRunnerService, getWalletConfig, logUserActivity, updateWalletPass, checkWalletPass } from '../services/supabaseService';
 import { getSession } from '../services/authService';
 import { Runner, WebPassConfig } from '../types';
 import { generateQrCodeDataUrl } from '../services/bibPassService';
@@ -194,51 +194,51 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     const isLineApp = /Line/i.test(userAgent);
     const isFacebookApp = /FBAN|FBAV|Messenger|Instagram/i.test(userAgent);
     const currentUrl = new URL(window.location.href);
-  
-  // เช็คเฉพาะ Android ที่เปิดผ่าน LINE หรือ Facebook
-  if (isAndroid) {
-    if (isLineApp) {
-      // สำหรับ LINE: ใช้ openExternalBrowser parameter
-      currentUrl.searchParams.set('openExternalBrowser', '1');
 
-      // แจ้งเตือนผู้ใช้ก่อนเด้ง
-      const userConfirmed = confirm(
-        "he in-app browser do not allow saving image.\n" +
-        "บราวเซอร์ของคุณไม่อนุญาติให้บันทึกรูป"
-      );
+    // เช็คเฉพาะ Android ที่เปิดผ่าน LINE หรือ Facebook
+    if (isAndroid) {
+      if (isLineApp) {
+        // สำหรับ LINE: ใช้ openExternalBrowser parameter
+        currentUrl.searchParams.set('openExternalBrowser', '1');
 
-      if (userConfirmed) {
-        window.location.href = currentUrl.toString();
-      }
-      return;
-    }
+        // แจ้งเตือนผู้ใช้ก่อนเด้ง
+        const userConfirmed = confirm(
+          "he in-app browser do not allow saving image.\n" +
+          "บราวเซอร์ของคุณไม่อนุญาติให้บันทึกรูป"
+        );
 
-    if (isFacebookApp) {
-      const currentUrl = window.location.href;
-
-      // [CASE 1]: Android ใช้เทคนิค Intent เพื่อดีดไป Chrome
-      if (isAndroid) {
-        // ลบ https:// ออกจาก url เดิม
-        const urlWithoutProtocol = currentUrl.replace(/^https?:\/\//, '');
-
-        // สร้าง Intent URL สำหรับ Android เพื่อบังคับเปิด Chrome
-        // รูปแบบ: intent://<url>#Intent;scheme=https;package=com.android.chrome;end
-        const intentUrl = `intent://${urlWithoutProtocol}#Intent;scheme=https;package=com.android.chrome;end`;
-
-        // สั่ง Redirect ไปยัง Intent
-        window.location.href = intentUrl;
+        if (userConfirmed) {
+          window.location.href = currentUrl.toString();
+        }
         return;
       }
 
-      // [CASE 2]: iOS หรืออื่นๆ ที่ใช้ Intent ไม่ได้ -> ต้องแจ้งเตือน
-      else {
-        alert("the in-app browser do not allow saving image.\n\nบราวเซอร์ของคุณไม่อนุญาติให้บันทึกรูป");
-        window.location.href = currentUrl.toString();
-        return;
+      if (isFacebookApp) {
+        const currentUrl = window.location.href;
+
+        // [CASE 1]: Android ใช้เทคนิค Intent เพื่อดีดไป Chrome
+        if (isAndroid) {
+          // ลบ https:// ออกจาก url เดิม
+          const urlWithoutProtocol = currentUrl.replace(/^https?:\/\//, '');
+
+          // สร้าง Intent URL สำหรับ Android เพื่อบังคับเปิด Chrome
+          // รูปแบบ: intent://<url>#Intent;scheme=https;package=com.android.chrome;end
+          const intentUrl = `intent://${urlWithoutProtocol}#Intent;scheme=https;package=com.android.chrome;end`;
+
+          // สั่ง Redirect ไปยัง Intent
+          window.location.href = intentUrl;
+          return;
+        }
+
+        // [CASE 2]: iOS หรืออื่นๆ ที่ใช้ Intent ไม่ได้ -> ต้องแจ้งเตือน
+        else {
+          alert("the in-app browser do not allow saving image.\n\nบราวเซอร์ของคุณไม่อนุญาติให้บันทึกรูป");
+          window.location.href = currentUrl.toString();
+          return;
+        }
       }
     }
-  }
-  // =================================================================================
+    // =================================================================================
 
     setIsSavingImage(true);
     setIsCapturing(true);
@@ -287,7 +287,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
       // --- ส่วนที่ 4: เช็ค OS และแยก Flow การทำงาน (iOS และ Browser ปกติ) ---
       const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
-      
+
       const performDownload = () => {
         const link = document.createElement('a');
         link.href = objectUrl;
@@ -336,7 +336,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       setWalletError("Failed to save image. Please try again.");
       setIsCapturing(false);
 
-      
+
       // Log failed...
       if (runner?.id) {
         logUserActivity({
@@ -361,18 +361,30 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     const functionUrl = walletType === 'google' ? GOOGLE_WALLET_EDGE_FUNCTION_URL : APPLE_WALLET_EDGE_FUNCTION_URL;
     const fullUrl = `${config.SUPABASE_URL}${functionUrl}`;
 
-    console.log('fullUrl', fullUrl);
-
     if (walletType === 'google') {
       setIsAddingToGoogleWallet(true);
       try {
+        const checkResult = await checkWalletPass(runner.id);
+
+        // 1. สร้างตัวแปรเช็คว่าเป็น Update หรือ Create
+        const isUpdate = !!checkResult.data; // ถ้ามี data แปลว่าเป็น Update
+
+        let body;
+        if (isUpdate) {
+          // Case Update: ส่ง objectIdReq ไปด้วย
+          body = { runnerId: runner.id, updatePass: true };
+        } else {
+          // Case Create: ส่งแค่ runnerId
+          body = { runnerId: runner.id, updatePass: false };
+        }
+
         const response = await fetch(fullUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${config.SUPABASE_ANON_KEY}`
           },
-          body: JSON.stringify({ runnerId: runner.id }),
+          body: JSON.stringify(body),
         });
 
         const responseText = await response.text();
@@ -384,9 +396,19 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         if (!response.ok) throw new Error(data.error || data.message);
 
         if (data.saveToGoogleWalletLink) {
-          // ใช้ window.location.href เพื่อ redirect ไปที่ Google Wallet link โดยตรง
-          // Safari mobile จะไม่ block การ redirect แบบนี้ และ Google Wallet link จะเปิดในแอปหรือ browser ใหม่อยู่แล้ว
+          // Update wallet pass ID in database if objectId is returned (Logic เดิม)
+          if (data.objectId && runner?.id) {
+            try {
+              await updateWalletPass(runner.id, data.objectId);
+              console.log('Google Wallet pass ID updated successfully:', data.objectId);
+            } catch (updateError: any) {
+              console.warn('Failed to update wallet pass ID:', updateError);
+            }
+          }
+
+          // window.open(data.saveToGoogleWalletLink, '_blank');
           window.location.href = data.saveToGoogleWalletLink;
+
         } else {
           setWalletError('Failed to get Google Wallet link.');
         }
@@ -407,13 +429,13 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         // Safari มีปัญหาในการดาวน์โหลด blob URL แต่จะรู้จัก application/vnd.apple.pkpass จาก direct link
         const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-        
+
         if (isSafari || isIOS) {
           // ✅ สำหรับ Safari: ใช้ direct link ไปที่ API endpoint
           // Safari จะรู้จัก application/vnd.apple.pkpass และเปิดใน Wallet app อัตโนมัติ
           console.log('Using direct link for Safari/iOS');
           window.location.href = downloadUrl;
-          
+
           // ให้เวลา Safari เปิด Wallet app
           setTimeout(() => {
             setIsAddingToAppleWallet(false);
@@ -435,16 +457,16 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
           const errorText = await response.text();
           let errorMessage = 'Failed to generate Apple Wallet pass.';
           let errorData: any = {};
-          
+
           try {
             errorData = JSON.parse(errorText);
             errorMessage = errorData.error || errorData.message || errorMessage;
-            
+
             // ✅ เพิ่ม: แสดง troubleshooting steps ถ้ามี
             if (errorData.troubleshooting && Array.isArray(errorData.troubleshooting)) {
               const troubleshooting = errorData.troubleshooting.join('\n• ');
               errorMessage = `${errorMessage}\n\n${troubleshooting}`;
-              
+
               // ถ้ามี configUrl ให้แนะนำ
               if (errorData.configUrl) {
                 errorMessage += `\n\nPlease go to Apple Wallet Configuration to fix this.`;
@@ -453,7 +475,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
           } catch (e) {
             errorMessage = errorText || `Server returned ${response.status}`;
           }
-          
+
           // สร้าง error object ที่มี troubleshooting info
           const error = new Error(errorMessage) as any;
           error.troubleshooting = errorData.troubleshooting;
@@ -478,7 +500,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        
+
         // Cleanup
         setTimeout(() => {
           window.URL.revokeObjectURL(blobUrl);
@@ -486,20 +508,20 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
       } catch (err: any) {
         console.error('Apple Wallet Error:', err);
-        
+
         // ✅ เพิ่ม: แสดง error message ที่ชัดเจนขึ้น
         let errorMessage = err.message || 'Failed to generate Apple Wallet pass.';
-        
+
         // ถ้า error มี troubleshooting info ให้แสดง
         if (err.troubleshooting && Array.isArray(err.troubleshooting)) {
           errorMessage = `${err.message || err.error || 'Failed to generate Apple Wallet pass.'}\n\n${err.troubleshooting.join('\n')}`;
-          
+
           // ถ้ามี configUrl ให้แนะนำให้ไปตั้งค่า
           if (err.configUrl) {
             errorMessage += `\n\nPlease configure Icon Image URL in Apple Wallet settings.`;
           }
         }
-        
+
         setWalletError(errorMessage);
       } finally {
         // ย้ายมาไว้ใน finally เพื่อให้ loading หายไปเสมอ ไม่ว่าจะ error หรือสำเร็จ
@@ -611,36 +633,36 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                   {isThai ? `ยินดีต้อนรับ, ${runner.first_name}` : `Welcome, ${runner.first_name}`}
                 </h2>
                 <p className="text-gray-300 mb-6">
-                  {isThai 
+                  {isThai
                     ? 'Runner Card ของคุณพร้อมแล้ว กรุณาบันทึกบัตรนี้เพื่อใช้แสดงในการรับเสื้อและเบอร์วิ่ง (Race Kit) พร้อมกับบัตรประชาชนตัวจริง'
                     : 'Your runner card is ready. Please save this card to present for race kit pick-up along with your original passport.'}
                 </p>
 
                 <div className="space-y-4">
                   <Button onClick={handleSaveAsImage} className="w-full" loading={isSavingImage}>
-                    {isSavingImage 
+                    {isSavingImage
                       ? (isThai ? 'กำลังบันทึกรูปภาพ...' : 'Saving Image...')
                       : (isThai ? 'บันทึกเป็นรูปภาพ' : 'Save as Image')}
                   </Button>
 
-                  {/* <div className="border-t border-gray-700 pt-4">
+                  {<div className="border-t border-gray-700 pt-4">
                     <h3 className="text-lg font-semibold mb-3 text-white">
                       {isThai ? 'เพิ่มลงในกระเป๋าเงิน' : 'Add to Wallet'}
                     </h3>
                     {walletError && <p className="text-red-500 mb-2 text-sm">{walletError}</p>}
                     <div className="flex flex-col gap-3">
                       <Button onClick={() => handleAddPassportToWallet('google')} variant="secondary" loading={isAddingToGoogleWallet}>
-                        {isAddingToGoogleWallet 
+                        {isAddingToGoogleWallet
                           ? (isThai ? 'กำลังสร้าง...' : 'Generating...')
                           : (isThai ? 'เพิ่มลงใน Google Wallet' : 'Add to Google Wallet')}
                       </Button>
                       <Button onClick={() => handleAddPassportToWallet('apple')} variant="secondary" loading={isAddingToAppleWallet}>
-                        {isAddingToAppleWallet 
+                        {isAddingToAppleWallet
                           ? (isThai ? 'กำลังสร้าง...' : 'Generating...')
                           : (isThai ? 'เพิ่มลงใน Apple Wallet' : 'Add to Apple Wallet')}
                       </Button>
                     </div>
-                  </div> */}
+                  </div>}
                 </div>
               </>
             );

@@ -37,7 +37,7 @@ export const insertRunners = async (runners: Runner[]): Promise<ApiResponse<{ su
 
     for (let i = 0; i < totalRecords; i += CHUNK_SIZE) {
       const chunk = runners.slice(i, i + CHUNK_SIZE);
-      const { data, error } = await supabaseClient.from('runners').insert(chunk).select('id');
+      const { data, error } = await supabaseClient.from('runners_test').insert(chunk).select('id');
 
       if (error) {
         console.error(`Error in batch starting at index ${i}:`, error.message);
@@ -213,6 +213,62 @@ export const updateRunner = async (runner: Partial<Runner>): Promise<ApiResponse
   } catch (error: any) {
     console.error('Error updating runner:', error);
     return { error: error.message || 'Failed to update runner.' };
+  }
+};
+
+/**
+ * Update Google Wallet pass ID for a runner
+ * Called after successfully creating a Google Wallet pass
+ */
+export const updateWalletPass = async (runnerId: string, googleWalletPassId: string): Promise<ApiResponse<Runner | null>> => {
+  if (!runnerId || !googleWalletPassId) {
+    return { error: 'Runner ID and Google Wallet Pass ID are required.' };
+  }
+  try {
+    const { data, error } = await getSupabaseClient()
+      .from('runners')
+      .update({ google_wallet_pass_id: googleWalletPassId })
+      .eq('id', runnerId)
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return { data };
+  } catch (error: any) {
+    console.error('Error updating wallet pass ID:', error);
+    return { error: error.message || 'Failed to update wallet pass ID.' };
+  }
+};
+
+/**
+ * Check if runner has a Google Wallet pass
+ * Used to determine if wallet pass should be updated after runner data changes
+ */
+export const checkWalletPass = async (runnerId: string): Promise<ApiResponse<boolean>> => {
+  if (!runnerId) {
+    return { error: 'Runner ID is required.' };
+  }
+  try {
+    const { data, error } = await getSupabaseClient()
+      .from('runners')
+      .select('google_wallet_pass_id')
+      .eq('id', runnerId)
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const hasPass = !!data?.google_wallet_pass_id;
+    return {
+      data: hasPass
+    };
+  } catch (error: any) {
+    console.error('Error checking wallet pass:', error);
+    return { error: error.message || 'Failed to check wallet pass.' };
   }
 };
 
@@ -468,5 +524,20 @@ export const getDailyStatistics = async (
   } catch (error: any) {
     console.error('Error fetching daily statistics:', error);
     return { error: error.message || 'Failed to fetch daily statistics.' };
+  }
+};
+
+export const getGoogleWalletConfigIssuerId = async (): Promise<ApiResponse<string>> => {
+  try {
+    const supabaseClient = getSupabaseClient();
+    const { data, error } = await supabaseClient
+      .from('wallet_config')
+      .select('issuer_id')
+      .eq('id', WALLET_CONFIG_ID)
+      .single();
+  }
+  catch (error: any) {
+    console.error('Error fetching Google Wallet config issuer ID:', error);
+    return { error: error.message || 'Failed to fetch Google Wallet config issuer ID.' };
   }
 };

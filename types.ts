@@ -31,6 +31,7 @@ export interface Runner {
   apple_pass_url: string | null; // Re-added to match DB schema
   access_key: string; // UUID for personalized bib pass links
   web_pass_template_id?: string; // ID of the WebPassConfig template to use
+  google_wallet_pass_id?: string | null; // Google Wallet pass object ID
 }
 
 
@@ -147,6 +148,11 @@ export interface FieldMappingsConfig {
   subheader: TemplateMapping;
   barcodeValue: SourceColumnMapping;
   textModules: TextModuleMapping[];
+  informationRows?: {
+    left?: { enabled?: boolean; label: string; value: string };
+    middle?: { enabled?: boolean; label: string; value: string };
+    right?: { enabled?: boolean; label: string; value: string };
+  }[];
 }
 
 // --- Interfaces for Apple Wallet Field Mapping ---
@@ -168,6 +174,11 @@ export interface AppleFieldMappingsConfig {
     // ✅ เพิ่ม: Google Wallet style config (จะถูกแปลงเป็น Apple Wallet fields อัตโนมัติ)
     header?: { enabled: boolean; template: string }; // Google Wallet style header
     subheader?: { enabled: boolean; template: string }; // Google Wallet style subheader
+    informationRows?: {
+        left?: { enabled?: boolean; label: string; value: string };
+        middle?: { enabled?: boolean; label: string; value: string };
+        right?: { enabled?: boolean; label: string; value: string };
+    }[];
 }
 
 export interface AppleWalletConfig {
