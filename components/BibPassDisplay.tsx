@@ -413,46 +413,32 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
           // window.open(data.saveToGoogleWalletLink, '_blank');
           // ✅ Log success ก่อน redirect
-     
-          try {
-            await logUserActivity({
-              activity_type: activityType,
-              runner_id: runner.id || null,
-              success: true,
-              metadata: {
-                wallet_type: walletType,
-                pass_url: data.saveToGoogleWalletLink,
-                user_agent: navigator.userAgent
-              }
-            });
-          
-          } catch (logError) {
-        
-          }
+          await logUserActivity({
+            activity_type: activityType,
+            runner_id: runner.id || null,
+            success: true,
+            metadata: {
+              wallet_type: walletType,
+              pass_url: data.saveToGoogleWalletLink,
+              user_agent: navigator.userAgent
+            }
+          });
 
           // ใช้ window.location.href เพื่อ redirect ไปที่ Google Wallet link โดยตรง
           // Safari mobile จะไม่ block การ redirect แบบนี้ และ Google Wallet link จะเปิดในแอปหรือ browser ใหม่อยู่แล้ว
-          // เพิ่ม delay เล็กน้อยเพื่อให้ log เสร็จก่อน redirect
-          setTimeout(() => {
-            window.location.href = data.saveToGoogleWalletLink;
-          }, 100);
+          window.location.href = data.saveToGoogleWalletLink;
 
         } else {
-     
-          try {
-            await logUserActivity({
-              activity_type: activityType,
-              runner_id: runner.id || null,
-              success: false,
-              error_message: 'Failed to get Google Wallet link.',
-              metadata: {
-                wallet_type: walletType
-              }
-            });
-            
-          } catch (logError) {
-           
-          }
+          // ✅ Log error - no link returned
+          await logUserActivity({
+            activity_type: activityType,
+            runner_id: runner.id || null,
+            success: false,
+            error_message: 'Failed to get Google Wallet link.',
+            metadata: {
+              wallet_type: walletType
+            }
+          });
 
           setWalletError('Failed to get Google Wallet link.');
         }
@@ -460,21 +446,15 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         console.error('Google Wallet Error:', err);
         
         // ✅ Log error
-        console.log('📝 Logging Google Wallet error...');
-        try {
-          await logUserActivity({
-            activity_type: activityType,
-            runner_id: runner.id || null,
-            success: false,
-            error_message: err.message || 'Unknown error',
-            metadata: {
-              wallet_type: walletType
-            }
-          });
-          console.log('✅ Google Wallet error logged successfully');
-        } catch (logError) {
-          console.error('❌ Failed to log Google Wallet error:', logError);
-        }
+        await logUserActivity({
+          activity_type: activityType,
+          runner_id: runner.id || null,
+          success: false,
+          error_message: err.message || 'Unknown error',
+          metadata: {
+            wallet_type: walletType
+          }
+        });
 
         setWalletError(err.message);
       } finally {
@@ -494,31 +474,22 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
         if (isSafari || isIOS) {
           // ✅ Log success ก่อน redirect สำหรับ Safari/iOS
-          console.log('📝 Logging Apple Wallet success activity (Safari/iOS)...');
-          try {
-            await logUserActivity({
-              activity_type: activityType,
-              runner_id: runner.id || null,
-              success: true,
-              metadata: {
-                wallet_type: walletType,
-                pass_url: downloadUrl,
-                user_agent: navigator.userAgent,
-                platform: isIOS ? 'ios' : 'safari'
-              }
-            });
-            console.log('✅ Apple Wallet activity logged successfully (Safari/iOS)');
-          } catch (logError) {
-            console.error('❌ Failed to log Apple Wallet activity:', logError);
-          }
+          await logUserActivity({
+            activity_type: activityType,
+            runner_id: runner.id || null,
+            success: true,
+            metadata: {
+              wallet_type: walletType,
+              pass_url: downloadUrl,
+              user_agent: navigator.userAgent,
+              platform: isIOS ? 'ios' : 'safari'
+            }
+          });
 
           // ✅ สำหรับ Safari: ใช้ direct link ไปที่ API endpoint
           // Safari จะรู้จัก application/vnd.apple.pkpass และเปิดใน Wallet app อัตโนมัติ
           console.log('Using direct link for Safari/iOS');
-          // เพิ่ม delay เล็กน้อยเพื่อให้ log เสร็จก่อน redirect
-          setTimeout(() => {
-            window.location.href = downloadUrl;
-          }, 100);
+          window.location.href = downloadUrl;
 
           // ให้เวลา Safari เปิด Wallet app
           setTimeout(() => {
@@ -562,29 +533,22 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
           
           // ✅ Log error
-          console.log('📝 Logging Apple Wallet error (response not ok)...');
-          try {
-            await logUserActivity({
-              activity_type: activityType,
-              runner_id: runner.id || null,
-              success: false,
-              error_message: errorMessage,
-              metadata: {
-                wallet_type: walletType,
-                http_status: response.status,
-                error_data: errorData
-              }
-            });
-            console.log('✅ Apple Wallet error logged successfully');
-          } catch (logError) {
-            console.error('❌ Failed to log Apple Wallet error:', logError);
-          }
+          await logUserActivity({
+            activity_type: activityType,
+            runner_id: runner.id || null,
+            success: false,
+            error_message: errorMessage,
+            metadata: {
+              wallet_type: walletType,
+              http_status: response.status,
+              error_data: errorData
+            }
+          });
           
           // สร้าง error object ที่มี troubleshooting info
           const error = new Error(errorMessage) as any;
           error.troubleshooting = errorData.troubleshooting;
           error.configUrl = errorData.configUrl;
-          error.logged = true; // Mark as logged
           throw error;
         }
 
@@ -592,26 +556,18 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('application/vnd.apple.pkpass')) {
           // ✅ Log error - invalid content type
-          console.log('📝 Logging Apple Wallet error (invalid content type)...');
-          try {
-            await logUserActivity({
-              activity_type: activityType,
-              runner_id: runner.id || null,
-              success: false,
-              error_message: 'Invalid file type returned from server.',
-              metadata: {
-                wallet_type: walletType,
-                content_type: contentType
-              }
-            });
-            console.log('✅ Apple Wallet error logged successfully');
-          } catch (logError) {
-            console.error('❌ Failed to log Apple Wallet error:', logError);
-          }
+          await logUserActivity({
+            activity_type: activityType,
+            runner_id: runner.id || null,
+            success: false,
+            error_message: 'Invalid file type returned from server.',
+            metadata: {
+              wallet_type: walletType,
+              content_type: contentType
+            }
+          });
 
-          const error = new Error('Invalid file type returned from server.') as any;
-          error.logged = true; // Mark as logged
-          throw error;
+          throw new Error('Invalid file type returned from server.');
         }
 
         // 6. แปลงเป็น Blob และดาวน์โหลด
@@ -619,24 +575,18 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         const blobUrl = window.URL.createObjectURL(blob);
 
         // ✅ Log success ก่อน download
-        console.log('📝 Logging Apple Wallet success activity (Desktop)...');
-        try {
-          await logUserActivity({
-            activity_type: activityType,
-            runner_id: runner.id || null,
-            success: true,
-            metadata: {
-              wallet_type: walletType,
-              pass_url: downloadUrl,
-              blob_size: blob.size,
-              user_agent: navigator.userAgent,
-              platform: 'desktop'
-            }
-          });
-          console.log('✅ Apple Wallet activity logged successfully (Desktop)');
-        } catch (logError) {
-          console.error('❌ Failed to log Apple Wallet activity:', logError);
-        }
+        await logUserActivity({
+          activity_type: activityType,
+          runner_id: runner.id || null,
+          success: true,
+          metadata: {
+            wallet_type: walletType,
+            pass_url: downloadUrl,
+            blob_size: blob.size,
+            user_agent: navigator.userAgent,
+            platform: 'desktop'
+          }
+        });
 
         // ✅ สำหรับ Desktop/Android (non-Safari): ใช้ <a download>
         const link = document.createElement('a');
@@ -658,21 +608,15 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         // ✅ Log error (ถ้ายังไม่ได้ log ใน catch block ด้านบน)
         // ตรวจสอบว่า error นี้ยังไม่ได้ log หรือไม่ (โดยดูจาก error object)
         if (!err.logged) {
-          console.log('📝 Logging Apple Wallet error (catch block)...');
-          try {
-            await logUserActivity({
-              activity_type: activityType,
-              runner_id: runner.id || null,
-              success: false,
-              error_message: err.message || 'Unknown error',
-              metadata: {
-                wallet_type: walletType
-              }
-            });
-            console.log('✅ Apple Wallet error logged successfully');
-          } catch (logError) {
-            console.error('❌ Failed to log Apple Wallet error:', logError);
-          }
+          await logUserActivity({
+            activity_type: activityType,
+            runner_id: runner.id || null,
+            success: false,
+            error_message: err.message || 'Unknown error',
+            metadata: {
+              wallet_type: walletType
+            }
+          });
         }
         
         // ✅ เพิ่ม: แสดง error message ที่ชัดเจนขึ้น
