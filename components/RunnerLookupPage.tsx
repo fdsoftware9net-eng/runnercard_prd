@@ -76,23 +76,19 @@ const RunnerLookupPage: React.FC = () => {
                 idCardNumber: isIdFilled ? idCardNumber : undefined,
             });
 
-            // Log the lookup activity (non-blocking)
+            // Log the lookup activity (non-blocking but awaited for mobile reliability)
             if (searchMethod && searchInputHash) {
-                logUserActivity({
+                await logUserActivity({
                     activity_type: 'lookup',
                     search_method: searchMethod,
                     search_input_hash: searchInputHash,
                     runner_id: result.data?.id || null,
                     success: !!result.data,
                     error_message: result.error || (!result.data ? 'Runner not found' : null) || null,
-                }).catch((err) => {
-                    // Fail silently to avoid impacting UX
-                    console.warn('Failed to log lookup activity:', err);
                 });
             }
 
             if (result.data) {
-                console.log(result.data);
                 const isThai = result.data.nationality === 'Thai';
                 if (result.data.colour_sign === "DEFER") {
                     const message = isThai

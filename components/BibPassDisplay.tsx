@@ -640,6 +640,12 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     }
   }, [runner]);
 
+
+  const handleLinkLINEAccount = useCallback(async () => {
+    // ใช้ line:// protocol เพื่อเปิดแอป LINE
+    window.location.href = `line://app/2006963905-pp64uyN7?bib=${runner?.bib}`;
+  }, [runner]);
+
   if (loading || !isSessionChecked) {
     return <div className="flex justify-center items-center min-h-screen"><LoadingSpinner message="Loading..." /></div>;
   }
@@ -755,6 +761,9 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                       : (isThai ? 'บันทึกเป็นรูปภาพ' : 'Save as Image')}
                   </Button>
 
+                  {/* <Button onClick={handleLinkLINEAccount} className="w-full bg-green-600 hover:bg-green-700 text-white focus:ring-green-500">
+                    {isThai ? 'กดรับผลวิ่งอัตโนมัติ' : 'Auto Receive Race Result'}
+                  </Button> */}
                   {<div className="border-t border-gray-700 pt-4">
                     <h3 className="text-lg font-semibold mb-3 text-white">
                       {isThai ? 'เพิ่มลงในกระเป๋าเงิน' : 'Add to Wallet'}

@@ -401,9 +401,9 @@ export const uploadPassAsset = async (file: File): Promise<ApiResponse<string>> 
 
 /**
  * Log user activity to the database
- * This function is designed to be non-blocking and fail silently to avoid impacting UX
+ * Returns error message if failed, null if successful
  */
-export const logUserActivity = async (params: CreateActivityLogParams): Promise<void> => {
+export const logUserActivity = async (params: CreateActivityLogParams): Promise<string | null> => {
   try {
     const supabaseClient = getSupabaseClient();
     
@@ -426,33 +426,36 @@ export const logUserActivity = async (params: CreateActivityLogParams): Promise<
       logData.ip_address = params.ip_address || null;
     }
 
-    console.log('📝 Attempting to log activity:', {
-      activity_type: logData.activity_type,
-      runner_id: logData.runner_id,
-      success: logData.success
+    // Use RPC function instead of direct insert to bypass RLS policy issues
+    const { data, error } = await supabaseClient.rpc('log_user_activity', {
+      p_activity_type: logData.activity_type,
+      p_runner_id: logData.runner_id || null,
+      p_search_method: logData.search_method || null,
+      p_search_input_hash: logData.search_input_hash || null,
+      p_success: logData.success,
+      p_error_message: logData.error_message || null,
+      p_user_agent: logData.user_agent || null,
+      p_ip_address: logData.ip_address || null,
+      p_metadata: logData.metadata || {}
     });
 
-    const { data, error } = await supabaseClient
-      .from('user_activity_logs')
-      .insert(logData)
-      .select();
-
     if (error) {
-      // Log error but don't throw to avoid impacting UX
-      console.error('❌ Failed to log user activity:', error);
-      console.error('Error details:', {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint
-      });
+      // Fail silently to avoid impacting UX
+      console.error('Failed to log user activity:', error);
+      return error.message || 'Failed to log activity';
     } else {
-      console.log('✅ Activity logged successfully:', data);
+      return null; // Success
     }
   } catch (error: any) {
-    // Fail silently to avoid impacting user experience
+    const errorMsg = `❌ Exception logging user activity:\n${error instanceof Error ? error.message : String(error)}\n\nStack: ${error instanceof Error ? error.stack : 'N/A'}`;
+    
+    // Show alert for mobile debugging
+    alert(errorMsg);
+    
     console.error('❌ Exception logging user activity:', error);
     console.error('Error stack:', error.stack);
+    
+    return error instanceof Error ? error.message : String(error);
   }
 };
 
