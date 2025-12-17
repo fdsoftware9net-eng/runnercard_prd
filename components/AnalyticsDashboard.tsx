@@ -11,10 +11,22 @@ const AnalyticsDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(30);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [runnerCurrentPage, setRunnerCurrentPage] = useState(1);
+  const [runnerItemsPerPage, setRunnerItemsPerPage] = useState(10);
 
   useEffect(() => {
     fetchStatistics();
   }, [days]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [itemsPerPage, dailyStats.length]);
+
+  useEffect(() => {
+    setRunnerCurrentPage(1);
+  }, [runnerItemsPerPage, runnerUpdates.length]);
 
   const fetchStatistics = async () => {
     setLoading(true);
@@ -272,139 +284,297 @@ const AnalyticsDashboard: React.FC = () => {
 
       {/* Daily Statistics Table */}
       <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-4">
           <h2 className="text-xl font-semibold text-white">Daily Statistics</h2>
-          <span className="text-gray-400 text-sm">
-            Showing {dailyStats.length} {dailyStats.length === 1 ? 'day' : 'days'}
-          </span>
+          <div className="flex items-center gap-3">
+            <label htmlFor="items-per-page" className="text-gray-300 text-sm">
+              Items per page:
+            </label>
+            <select
+              id="items-per-page"
+              value={itemsPerPage}
+              onChange={(e) => setItemsPerPage(Number(e.target.value))}
+              className="px-3 py-1.5 bg-gray-700 text-white rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={30}>30</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+            <span className="text-gray-400 text-sm">
+              Total: {dailyStats.length} {dailyStats.length === 1 ? 'day' : 'days'}
+            </span>
+          </div>
         </div>
         {dailyStats.length === 0 ? (
           <div className="text-center py-8 text-gray-400">
             <p>No daily statistics available for the selected period</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="pb-3 text-gray-300 font-semibold">Date</th>
-                  <th className="pb-3 text-gray-300 font-semibold text-right">Lookups</th>
-                  <th className="pb-3 text-gray-300 font-semibold text-right">Downloads</th>
-                  <th className="pb-3 text-gray-300 font-semibold text-right">Google Wallet</th>
-                  <th className="pb-3 text-gray-300 font-semibold text-right">Apple Wallet</th>
-                  <th className="pb-3 text-gray-300 font-semibold text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dailyStats.map((day, index) => (
-                  <tr
-                    key={day.date}
-                    className={`border-b border-gray-700 hover:bg-gray-700 transition-colors ${
-                      index % 2 === 0 ? 'bg-gray-800' : 'bg-gray-750'
-                    }`}
-                  >
-                    <td className="py-3 text-white font-medium">
-                      {new Date(day.date).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-gray-700">
+                    <th className="pb-3 text-gray-300 font-semibold">Date</th>
+                    <th className="pb-3 text-gray-300 font-semibold text-right">Lookups</th>
+                    <th className="pb-3 text-gray-300 font-semibold text-right">Downloads</th>
+                    <th className="pb-3 text-gray-300 font-semibold text-right">Google Wallet</th>
+                    <th className="pb-3 text-gray-300 font-semibold text-right">Apple Wallet</th>
+                    <th className="pb-3 text-gray-300 font-semibold text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailyStats
+                    .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+                    .map((day, index) => {
+                      const globalIndex = (currentPage - 1) * itemsPerPage + index;
+                      return (
+                        <tr
+                          key={day.date}
+                          className={`border-b border-gray-700 hover:bg-gray-700 transition-colors ${
+                            globalIndex % 2 === 0 ? 'bg-gray-800' : 'bg-gray-750'
+                          }`}
+                        >
+                          <td className="py-3 text-white font-medium">
+                            {new Date(day.date).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </td>
+                          <td className="py-3 text-right text-white">{day.lookups.toLocaleString()}</td>
+                          <td className="py-3 text-right text-white">{day.downloads.toLocaleString()}</td>
+                          <td className="py-3 text-right text-blue-400">{day.google_wallet.toLocaleString()}</td>
+                          <td className="py-3 text-right text-gray-400">{day.apple_wallet.toLocaleString()}</td>
+                          <td className="py-3 text-right text-blue-400 font-semibold">
+                            {(day.lookups + day.downloads + day.google_wallet + day.apple_wallet).toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-gray-600 bg-gray-700">
+                    <td className="py-3 text-white font-bold">Total</td>
+                    <td className="py-3 text-right text-white font-bold">
+                      {dailyStats.reduce((sum, day) => sum + day.lookups, 0).toLocaleString()}
                     </td>
-                    <td className="py-3 text-right text-white">{day.lookups.toLocaleString()}</td>
-                    <td className="py-3 text-right text-white">{day.downloads.toLocaleString()}</td>
-                    <td className="py-3 text-right text-blue-400">{day.google_wallet.toLocaleString()}</td>
-                    <td className="py-3 text-right text-gray-400">{day.apple_wallet.toLocaleString()}</td>
-                    <td className="py-3 text-right text-blue-400 font-semibold">
-                      {(day.lookups + day.downloads + day.google_wallet + day.apple_wallet).toLocaleString()}
+                    <td className="py-3 text-right text-white font-bold">
+                      {dailyStats.reduce((sum, day) => sum + day.downloads, 0).toLocaleString()}
+                    </td>
+                    <td className="py-3 text-right text-blue-400 font-bold">
+                      {dailyStats.reduce((sum, day) => sum + day.google_wallet, 0).toLocaleString()}
+                    </td>
+                    <td className="py-3 text-right text-gray-400 font-bold">
+                      {dailyStats.reduce((sum, day) => sum + day.apple_wallet, 0).toLocaleString()}
+                    </td>
+                    <td className="py-3 text-right text-blue-400 font-bold">
+                      {dailyStats.reduce((sum, day) => sum + day.lookups + day.downloads + day.google_wallet + day.apple_wallet, 0).toLocaleString()}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-gray-600 bg-gray-700">
-                  <td className="py-3 text-white font-bold">Total</td>
-                  <td className="py-3 text-right text-white font-bold">
-                    {dailyStats.reduce((sum, day) => sum + day.lookups, 0).toLocaleString()}
-                  </td>
-                  <td className="py-3 text-right text-white font-bold">
-                    {dailyStats.reduce((sum, day) => sum + day.downloads, 0).toLocaleString()}
-                  </td>
-                  <td className="py-3 text-right text-blue-400 font-bold">
-                    {dailyStats.reduce((sum, day) => sum + day.google_wallet, 0).toLocaleString()}
-                  </td>
-                  <td className="py-3 text-right text-gray-400 font-bold">
-                    {dailyStats.reduce((sum, day) => sum + day.apple_wallet, 0).toLocaleString()}
-                  </td>
-                  <td className="py-3 text-right text-blue-400 font-bold">
-                    {dailyStats.reduce((sum, day) => sum + day.lookups + day.downloads + day.google_wallet + day.apple_wallet, 0).toLocaleString()}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+                </tfoot>
+              </table>
+            </div>
+            {/* Pagination Controls */}
+            {dailyStats.length > itemsPerPage && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 pt-4 border-t border-gray-700">
+                <div className="text-gray-400 text-sm">
+                  Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, dailyStats.length)} of {dailyStats.length} entries
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 bg-gray-700 text-white rounded-md border border-gray-600 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                  >
+                    Previous
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.ceil(dailyStats.length / itemsPerPage) }, (_, i) => i + 1)
+                      .filter((page) => {
+                        const totalPages = Math.ceil(dailyStats.length / itemsPerPage);
+                        if (totalPages <= 7) return true;
+                        if (page === 1 || page === totalPages) return true;
+                        if (Math.abs(page - currentPage) <= 1) return true;
+                        return false;
+                      })
+                      .map((page, index, array) => {
+                        const prevPage = array[index - 1];
+                        const showEllipsis = prevPage && page - prevPage > 1;
+                        return (
+                          <React.Fragment key={page}>
+                            {showEllipsis && (
+                              <span className="px-2 text-gray-400">...</span>
+                            )}
+                            <button
+                              onClick={() => setCurrentPage(page)}
+                              className={`px-3 py-1.5 rounded-md border transition-colors text-sm ${
+                                currentPage === page
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'bg-gray-700 text-white border-gray-600 hover:bg-gray-600'
+                              }`}
+                            >
+                              {page}
+                            </button>
+                          </React.Fragment>
+                        );
+                      })}
+                  </div>
+                  <button
+                    onClick={() => setCurrentPage((prev) => Math.min(Math.ceil(dailyStats.length / itemsPerPage), prev + 1))}
+                    disabled={currentPage >= Math.ceil(dailyStats.length / itemsPerPage)}
+                    className="px-3 py-1.5 bg-gray-700 text-white rounded-md border border-gray-600 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
       {/* Runner Updates Table */}
       <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-4">
           <h2 className="text-xl font-semibold text-white">Runner Updates</h2>
-          <span className="text-gray-400 text-sm">
-            Showing {runnerUpdates.length} {runnerUpdates.length === 1 ? 'runner' : 'runners'}
-          </span>
+          <div className="flex items-center gap-3">
+            <label htmlFor="runner-items-per-page" className="text-gray-300 text-sm">
+              Items per page:
+            </label>
+            <select
+              id="runner-items-per-page"
+              value={runnerItemsPerPage}
+              onChange={(e) => setRunnerItemsPerPage(Number(e.target.value))}
+              className="px-3 py-1.5 bg-gray-700 text-white rounded-md border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={30}>30</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+            <span className="text-gray-400 text-sm">
+              Total: {runnerUpdates.length} {runnerUpdates.length === 1 ? 'runner' : 'runners'}
+            </span>
+          </div>
         </div>
         {runnerUpdates.length === 0 ? (
           <div className="text-center py-8 text-gray-400">
             <p>No runner updates found for the selected period</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-gray-700">
-                  <th className="pb-3 text-gray-300 font-semibold">Runner</th>
-                  <th className="pb-3 text-gray-300 font-semibold text-right">BIB</th>
-                  <th className="pb-3 text-gray-300 font-semibold text-right">Update Count</th>
-                  <th className="pb-3 text-gray-300 font-semibold text-right">Successful</th>
-                  <th className="pb-3 text-gray-300 font-semibold text-right">Failed</th>
-                  <th className="pb-3 text-gray-300 font-semibold">Last Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runnerUpdates.map((update, index) => (
-                  <tr
-                    key={update.runner_id}
-                    className={`border-b border-gray-700 hover:bg-gray-700 transition-colors ${
-                      index % 2 === 0 ? 'bg-gray-800' : 'bg-gray-750'
-                    }`}
-                  >
-                    <td className="py-3 text-white font-medium">
-                      {update.runner_name}
-                    </td>
-                    <td className="py-3 text-right text-white">{update.runner_bib}</td>
-                    <td className="py-3 text-right text-blue-400 font-semibold">
-                      {update.update_count.toLocaleString()}
-                    </td>
-                    <td className="py-3 text-right text-green-400">
-                      {update.success_count.toLocaleString()}
-                    </td>
-                    <td className="py-3 text-right text-red-400">
-                      {update.failed_count.toLocaleString()}
-                    </td>
-                    <td className="py-3 text-gray-300">
-                      {new Date(update.last_updated_at).toLocaleString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-gray-700">
+                    <th className="pb-3 text-gray-300 font-semibold">Runner</th>
+                    <th className="pb-3 text-gray-300 font-semibold text-right">BIB</th>
+                    <th className="pb-3 text-gray-300 font-semibold text-right">Update Count</th>
+                    <th className="pb-3 text-gray-300 font-semibold text-right">Successful</th>
+                    <th className="pb-3 text-gray-300 font-semibold text-right">Failed</th>
+                    <th className="pb-3 text-gray-300 font-semibold">Last Updated</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {runnerUpdates
+                    .slice((runnerCurrentPage - 1) * runnerItemsPerPage, runnerCurrentPage * runnerItemsPerPage)
+                    .map((update, index) => {
+                      const globalIndex = (runnerCurrentPage - 1) * runnerItemsPerPage + index;
+                      return (
+                        <tr
+                          key={update.runner_id}
+                          className={`border-b border-gray-700 hover:bg-gray-700 transition-colors ${
+                            globalIndex % 2 === 0 ? 'bg-gray-800' : 'bg-gray-750'
+                          }`}
+                        >
+                          <td className="py-3 text-white font-medium">
+                            {update.runner_name}
+                          </td>
+                          <td className="py-3 text-right text-white">{update.runner_bib}</td>
+                          <td className="py-3 text-right text-blue-400 font-semibold">
+                            {update.update_count.toLocaleString()}
+                          </td>
+                          <td className="py-3 text-right text-green-400">
+                            {update.success_count.toLocaleString()}
+                          </td>
+                          <td className="py-3 text-right text-red-400">
+                            {update.failed_count.toLocaleString()}
+                          </td>
+                          <td className="py-3 text-gray-300">
+                            {new Date(update.last_updated_at).toLocaleString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+            {/* Pagination Controls */}
+            {runnerUpdates.length > runnerItemsPerPage && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 pt-4 border-t border-gray-700">
+                <div className="text-gray-400 text-sm">
+                  Showing {(runnerCurrentPage - 1) * runnerItemsPerPage + 1} to {Math.min(runnerCurrentPage * runnerItemsPerPage, runnerUpdates.length)} of {runnerUpdates.length} entries
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setRunnerCurrentPage((prev) => Math.max(1, prev - 1))}
+                    disabled={runnerCurrentPage === 1}
+                    className="px-3 py-1.5 bg-gray-700 text-white rounded-md border border-gray-600 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                  >
+                    Previous
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.ceil(runnerUpdates.length / runnerItemsPerPage) }, (_, i) => i + 1)
+                      .filter((page) => {
+                        const totalPages = Math.ceil(runnerUpdates.length / runnerItemsPerPage);
+                        if (totalPages <= 7) return true;
+                        if (page === 1 || page === totalPages) return true;
+                        if (Math.abs(page - runnerCurrentPage) <= 1) return true;
+                        return false;
+                      })
+                      .map((page, index, array) => {
+                        const prevPage = array[index - 1];
+                        const showEllipsis = prevPage && page - prevPage > 1;
+                        return (
+                          <React.Fragment key={page}>
+                            {showEllipsis && (
+                              <span className="px-2 text-gray-400">...</span>
+                            )}
+                            <button
+                              onClick={() => setRunnerCurrentPage(page)}
+                              className={`px-3 py-1.5 rounded-md border transition-colors text-sm ${
+                                runnerCurrentPage === page
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'bg-gray-700 text-white border-gray-600 hover:bg-gray-600'
+                              }`}
+                            >
+                              {page}
+                            </button>
+                          </React.Fragment>
+                        );
+                      })}
+                  </div>
+                  <button
+                    onClick={() => setRunnerCurrentPage((prev) => Math.min(Math.ceil(runnerUpdates.length / runnerItemsPerPage), prev + 1))}
+                    disabled={runnerCurrentPage >= Math.ceil(runnerUpdates.length / runnerItemsPerPage)}
+                    className="px-3 py-1.5 bg-gray-700 text-white rounded-md border border-gray-600 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
