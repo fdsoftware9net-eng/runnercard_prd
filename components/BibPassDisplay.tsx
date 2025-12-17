@@ -777,9 +777,9 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                       : (isThai ? 'บันทึกเป็นรูปภาพ' : 'Save as Image')}
                   </Button>
 
-                  <Button onClick={handleLinkLINEAccount} className="w-full bg-green-600 hover:bg-green-700 text-white focus:ring-green-500">
+                  {/* <Button onClick={handleLinkLINEAccount} className="w-full bg-green-600 hover:bg-green-700 text-white focus:ring-green-500">
                     {isThai ? 'กดรับผลวิ่งอัตโนมัติ' : 'Auto Receive Race Result'}
-                  </Button>
+                  </Button> */}
                   {<div className="border-t border-gray-700 pt-4">
                     <h3 className="text-lg font-semibold mb-3 text-white">
                       {isThai ? 'เพิ่มลงในกระเป๋าเงิน' : 'Add to Wallet'}
