@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { getActivityStatistics, getDailyStatistics, getRunnerUpdates } from '../services/supabaseService';
-import { ActivityStatistics, DailyStatistics, RunnerUpdate } from '../types';
+import React, { useState, useEffect, useCallback } from 'react';
+import { getActivityStatistics, getDailyStatistics, getRunnerUpdates, getRunnersByIds } from '../services/supabaseService';
+import { ActivityStatistics, DailyStatistics, RunnerUpdate, Runner } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import Button from './Button';
 
@@ -15,6 +15,7 @@ const AnalyticsDashboard: React.FC = () => {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [runnerCurrentPage, setRunnerCurrentPage] = useState(1);
   const [runnerItemsPerPage, setRunnerItemsPerPage] = useState(10);
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     fetchStatistics();
@@ -69,6 +70,115 @@ const AnalyticsDashboard: React.FC = () => {
   const handleRefresh = () => {
     fetchStatistics();
   };
+
+  // Define the order of columns for CSV export
+  // Note: last_updated_at and failed_count are from RunnerUpdate, not Runner
+  const EXPORT_COLUMN_KEYS: Array<keyof Runner> = [
+    "id",
+    "first_name",
+    "last_name",
+    "id_card_hash",
+    "bib",
+    "top50",
+    "top_50_no",
+    "race_kit",
+    "colour_sign",
+    "row",
+    "row_no",
+    "shirt_type",
+    "shirt",
+    "gender",
+    "nationality",
+    "age_category",
+    "block",
+    "wave_start",
+    "pre_order",
+    "first_half_marathon",
+    "note",
+    "qr",
+  ];
+  
+  // Additional columns from RunnerUpdate (not in Runner type)
+  const ADDITIONAL_COLUMNS = ['last_updated_at', 'failed_count'];
+
+  // Helper function to escape values for CSV
+  const escapeCsvValue = (value: string | number | boolean | null | undefined): string => {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    const strValue = String(value);
+    // If the string contains a comma, double quote, or newline, enclose it in double quotes.
+    // Also, any double quotes within the string must be escaped by doubling them.
+    if (strValue.includes(',') || strValue.includes('"') || strValue.includes('\n')) {
+      return `"${strValue.replace(/"/g, '""')}"`;
+    }
+    return strValue;
+  };
+
+  const handleExportRunnerUpdates = useCallback(async () => {
+    if (runnerUpdates.length === 0) {
+      alert('No runner updates to export.');
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      // Extract runner_id array from runnerUpdates
+      const runnerIds = runnerUpdates.map(update => update.runner_id);
+
+      // Fetch full runner data for all updated runners
+      const result = await getRunnersByIds(runnerIds);
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      if (!result.data || result.data.length === 0) {
+        alert('No runner data found to export.');
+        setIsExporting(false);
+        return;
+      }
+
+      // Create a map from runnerUpdates for quick lookup
+      const updateMap = new Map(
+        runnerUpdates.map(update => [update.runner_id, update])
+      );
+
+      // Create CSV content with headers
+      const allHeaders = [...EXPORT_COLUMN_KEYS, ...ADDITIONAL_COLUMNS];
+      const header = allHeaders.map(key => escapeCsvValue(key)).join(',');
+      
+      // Create rows with merged data
+      const rows = result.data.map(runner => {
+        const update = updateMap.get(runner.id || '') as RunnerUpdate | undefined;
+        const rowData = [
+          ...EXPORT_COLUMN_KEYS.map(key => escapeCsvValue(runner[key])),
+          escapeCsvValue(update?.last_updated_at || ''),
+          escapeCsvValue(update?.failed_count || 0)
+        ];
+        return rowData.join(',');
+      });
+
+      const csvContent = [header, ...rows].join('\n');
+      // เพิ่ม UTF-8 BOM เพื่อให้ Excel อ่านภาษาไทยได้ถูกต้อง
+      const csvWithBom = '\uFEFF' + csvContent;
+      const blob = new Blob([csvWithBom], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const dateStr = new Date().toISOString().split('T')[0];
+      link.setAttribute('download', `runner_updates_full_data_${days}_days_${dateStr}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(`Failed to export CSV: ${err.message || 'Unknown error'}`);
+      console.error('CSV export error:', err);
+    } finally {
+      setIsExporting(false);
+    }
+  }, [runnerUpdates, days]);
 
   if (loading) {
     return (
@@ -128,7 +238,7 @@ const AnalyticsDashboard: React.FC = () => {
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         {/* Lookup Statistics Card */}
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
           <div className="flex items-center justify-between mb-4">
@@ -161,7 +271,9 @@ const AnalyticsDashboard: React.FC = () => {
                     style={{ width: `${Math.min(stats.lookup_success_rate, 100)}%` }}
                   ></div>
                 </div>
-                <span className="text-white font-bold text-lg">{stats.lookup_success_rate.toFixed(2)}%</span>
+                <span className="text-white font-bold text-base whitespace-nowrap">
+                  {stats.lookup_success_rate.toFixed(2)}%
+                </span>
               </div>
             </div>
           </div>
@@ -199,7 +311,9 @@ const AnalyticsDashboard: React.FC = () => {
                     style={{ width: `${Math.min(stats.download_success_rate, 100)}%` }}
                   ></div>
                 </div>
-                <span className="text-white font-bold text-lg">{stats.download_success_rate.toFixed(2)}%</span>
+                <span className="text-white font-bold text-base whitespace-nowrap">
+                  {stats.download_success_rate.toFixed(2)}%
+                </span>
               </div>
             </div>
           </div>
@@ -237,7 +351,9 @@ const AnalyticsDashboard: React.FC = () => {
                     style={{ width: `${Math.min(stats.google_wallet_success_rate, 100)}%` }}
                   ></div>
                 </div>
-                <span className="text-white font-bold text-lg">{stats.google_wallet_success_rate.toFixed(2)}%</span>
+                <span className="text-white font-bold text-base whitespace-nowrap">
+                  {stats.google_wallet_success_rate.toFixed(2)}%
+                </span>
               </div>
             </div>
           </div>
@@ -275,7 +391,49 @@ const AnalyticsDashboard: React.FC = () => {
                     style={{ width: `${Math.min(stats.apple_wallet_success_rate, 100)}%` }}
                   ></div>
                 </div>
-                <span className="text-white font-bold text-lg">{stats.apple_wallet_success_rate.toFixed(2)}%</span>
+                <span className="text-white font-bold text-base whitespace-nowrap">
+                  {stats.apple_wallet_success_rate.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* LINE Account Statistics Card */}
+        <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-white">LINE Account</h2>
+            <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center py-2 border-b border-gray-700">
+              <span className="text-gray-300">Total Clicks:</span>
+              <span className="text-white font-bold text-lg">{stats.total_link_line_account.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-gray-700">
+              <span className="text-gray-300">Successful:</span>
+              <span className="text-green-400 font-bold">{stats.successful_link_line_account.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center py-2 border-b border-gray-700">
+              <span className="text-gray-300">Failed:</span>
+              <span className="text-red-400 font-bold">{stats.failed_link_line_account.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center pt-2">
+              <span className="text-gray-300 font-semibold">Success Rate:</span>
+              <div className="flex items-center gap-2">
+                <div className="w-32 bg-gray-700 rounded-full h-2">
+                  <div
+                    className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.min(stats.link_line_account_success_rate, 100)}%` }}
+                  ></div>
+                </div>
+                <span className="text-white font-bold text-base whitespace-nowrap">
+                  {stats.link_line_account_success_rate.toFixed(2)}%
+                </span>
               </div>
             </div>
           </div>
@@ -322,6 +480,7 @@ const AnalyticsDashboard: React.FC = () => {
                     <th className="pb-3 text-gray-300 font-semibold text-right">Downloads</th>
                     <th className="pb-3 text-gray-300 font-semibold text-right">Google Wallet</th>
                     <th className="pb-3 text-gray-300 font-semibold text-right">Apple Wallet</th>
+                    <th className="pb-3 text-gray-300 font-semibold text-right">LINE Account</th>
                     <th className="pb-3 text-gray-300 font-semibold text-right">Total</th>
                   </tr>
                 </thead>
@@ -348,8 +507,9 @@ const AnalyticsDashboard: React.FC = () => {
                           <td className="py-3 text-right text-white">{day.downloads.toLocaleString()}</td>
                           <td className="py-3 text-right text-blue-400">{day.google_wallet.toLocaleString()}</td>
                           <td className="py-3 text-right text-gray-400">{day.apple_wallet.toLocaleString()}</td>
+                          <td className="py-3 text-right text-green-400">{day.link_line_account.toLocaleString()}</td>
                           <td className="py-3 text-right text-blue-400 font-semibold">
-                            {(day.lookups + day.downloads + day.google_wallet + day.apple_wallet).toLocaleString()}
+                            {(day.lookups + day.downloads + day.google_wallet + day.apple_wallet + day.link_line_account).toLocaleString()}
                           </td>
                         </tr>
                       );
@@ -370,8 +530,11 @@ const AnalyticsDashboard: React.FC = () => {
                     <td className="py-3 text-right text-gray-400 font-bold">
                       {dailyStats.reduce((sum, day) => sum + day.apple_wallet, 0).toLocaleString()}
                     </td>
+                    <td className="py-3 text-right text-green-400 font-bold">
+                      {dailyStats.reduce((sum, day) => sum + day.link_line_account, 0).toLocaleString()}
+                    </td>
                     <td className="py-3 text-right text-blue-400 font-bold">
-                      {dailyStats.reduce((sum, day) => sum + day.lookups + day.downloads + day.google_wallet + day.apple_wallet, 0).toLocaleString()}
+                      {dailyStats.reduce((sum, day) => sum + day.lookups + day.downloads + day.google_wallet + day.apple_wallet + day.link_line_account, 0).toLocaleString()}
                     </td>
                   </tr>
                 </tfoot>
@@ -441,6 +604,15 @@ const AnalyticsDashboard: React.FC = () => {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-4">
           <h2 className="text-xl font-semibold text-white">Runner Updates</h2>
           <div className="flex items-center gap-3">
+            <Button
+              onClick={handleExportRunnerUpdates}
+              variant="secondary"
+              size="sm"
+              disabled={runnerUpdates.length === 0 || isExporting}
+              loading={isExporting}
+            >
+              {isExporting ? 'Exporting...' : 'Export CSV'}
+            </Button>
             <label htmlFor="runner-items-per-page" className="text-gray-300 text-sm">
               Items per page:
             </label>

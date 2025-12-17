@@ -28,6 +28,9 @@ const EXPORT_COLUMN_KEYS: Array<keyof Runner> = [
   "id_card_hash",
   "bib",
   "top_50_no",
+  "top50",
+  "colour_sign",
+  "qr",
   "race_kit",
   "row",
   "row_no",
@@ -242,7 +245,9 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
       );
 
       const csvContent = [header, ...rows].join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      // เพิ่ม UTF-8 BOM เพื่อให้ Excel อ่านภาษาไทยได้ถูกต้อง
+      const csvWithBom = '\uFEFF' + csvContent;
+      const blob = new Blob([csvWithBom], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;

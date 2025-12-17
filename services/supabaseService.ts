@@ -37,7 +37,8 @@ export const insertRunners = async (runners: Runner[]): Promise<ApiResponse<{ su
 
     for (let i = 0; i < totalRecords; i += CHUNK_SIZE) {
       const chunk = runners.slice(i, i + CHUNK_SIZE);
-      const { data, error } = await supabaseClient.from('runners').insert(chunk).select('id');
+      // const { data, error } = await supabaseClient.from('runners_test').insert(chunk).select('id');
+       const { data, error } = await supabaseClient.from('runners').insert(chunk).select('id');
 
       if (error) {
         console.error(`Error in batch starting at index ${i}:`, error.message);
@@ -498,6 +499,11 @@ export const getActivityStatistics = async (
           successful_apple_wallet: 0,
           failed_apple_wallet: 0,
           apple_wallet_success_rate: 0,
+          // ✅ เพิ่ม: LINE Account Statistics defaults
+          total_link_line_account: 0,
+          successful_link_line_account: 0,
+          failed_link_line_account: 0,
+          link_line_account_success_rate: 0,
         },
       };
     }
@@ -524,6 +530,11 @@ export const getActivityStatistics = async (
         successful_apple_wallet: Number(result.successful_apple_wallet) || 0,
         failed_apple_wallet: Number(result.failed_apple_wallet) || 0,
         apple_wallet_success_rate: Number(result.apple_wallet_success_rate) || 0,
+        // ✅ เพิ่ม: LINE Account Statistics
+        total_link_line_account: Number(result.total_link_line_account) || 0,
+        successful_link_line_account: Number(result.successful_link_line_account) || 0,
+        failed_link_line_account: Number(result.failed_link_line_account) || 0,
+        link_line_account_success_rate: Number(result.link_line_account_success_rate) || 0,
       },
     };
   } catch (error: any) {
@@ -558,6 +569,8 @@ export const getDailyStatistics = async (
       // ✅ เพิ่ม: Wallet Downloads
       google_wallet: Number(item.google_wallet) || 0,
       apple_wallet: Number(item.apple_wallet) || 0,
+      // ✅ เพิ่ม: LINE Account
+      link_line_account: Number(item.link_line_account) || 0,
     }));
 
     return { data: result };
@@ -581,6 +594,37 @@ export const getGoogleWalletConfigIssuerId = async (): Promise<ApiResponse<strin
     return { error: error.message || 'Failed to fetch Google Wallet config issuer ID.' };
   }
 };
+/**
+ * ดึงข้อมูล runners หลายตัวพร้อมกันจาก runner_id array
+ * @param runnerIds Array ของ runner_id ที่ต้องการดึงข้อมูล
+ * @returns Array ของ Runner objects
+ */
+export const getRunnersByIds = async (
+  runnerIds: string[]
+): Promise<ApiResponse<Runner[]>> => {
+  try {
+    if (!runnerIds || runnerIds.length === 0) {
+      return { data: [] };
+    }
+
+    const supabaseClient = getSupabaseClient();
+    
+    const { data, error } = await supabaseClient
+      .from('runners')
+      .select('*')
+      .in('id', runnerIds);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return { data: data || [] };
+  } catch (error: any) {
+    console.error('Error fetching runners by IDs:', error);
+    return { error: error.message || 'Failed to fetch runners by IDs.' };
+  }
+};
+
 /**
  * ดึงรายการ runner ที่ถูกแก้ไข
  * @param days จำนวนวันที่ต้องการดึงข้อมูล (default: 30)

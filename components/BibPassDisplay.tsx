@@ -642,8 +642,24 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
 
   const handleLinkLINEAccount = useCallback(async () => {
+    if (!runner) return;
+    
+    const lineUrl = `line://app/2008706275-tpDmNJjF?bib=${runner.bib}`;
+    
+    // ✅ Log activity ก่อน redirect (สำคัญมาก! เพราะหลัง redirect จะไม่สามารถเก็บ log ได้)
+    logUserActivity({
+      activity_type: 'link_line_account',
+      runner_id: runner.id || null,
+      success: true,
+      metadata: {
+        bib: runner.bib,
+        line_app_url: lineUrl,
+        user_agent: navigator.userAgent
+      }
+    }).catch((err) => console.warn('Failed to log LINE account link:', err));
+    
     // ใช้ line:// protocol เพื่อเปิดแอป LINE
-    window.location.href = `line://app/2006963905-pp64uyN7?bib=${runner?.bib}`;
+    window.location.href = lineUrl;
   }, [runner]);
 
   if (loading || !isSessionChecked) {
@@ -761,9 +777,9 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                       : (isThai ? 'บันทึกเป็นรูปภาพ' : 'Save as Image')}
                   </Button>
 
-                  {/* <Button onClick={handleLinkLINEAccount} className="w-full bg-green-600 hover:bg-green-700 text-white focus:ring-green-500">
+                  <Button onClick={handleLinkLINEAccount} className="w-full bg-green-600 hover:bg-green-700 text-white focus:ring-green-500">
                     {isThai ? 'กดรับผลวิ่งอัตโนมัติ' : 'Auto Receive Race Result'}
-                  </Button> */}
+                  </Button>
                   {<div className="border-t border-gray-700 pt-4">
                     <h3 className="text-lg font-semibold mb-3 text-white">
                       {isThai ? 'เพิ่มลงในกระเป๋าเงิน' : 'Add to Wallet'}
