@@ -37,7 +37,7 @@ export const insertRunners = async (runners: Runner[]): Promise<ApiResponse<{ su
 
     for (let i = 0; i < totalRecords; i += CHUNK_SIZE) {
       const chunk = runners.slice(i, i + CHUNK_SIZE);
-      const { data, error } = await supabaseClient.from('runners_test').insert(chunk).select('id');
+      const { data, error } = await supabaseClient.from('runners').insert(chunk).select('id');
 
       if (error) {
         console.error(`Error in batch starting at index ${i}:`, error.message);
