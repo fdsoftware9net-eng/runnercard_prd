@@ -644,7 +644,8 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
   const handleLinkLINEAccount = useCallback(async () => {
     if (!runner) return;
     
-    const lineUrl = `line://app/2008706275-tpDmNJjF?bib=${runner.bib}`;
+    // const lineUrl = `line://app/2008706275-tpDmNJjF?bib=${runner.bib}`;
+    const lineUrl = `line://app/2007692747-pOVazJLi?bib=${runner.bib}`;
     
     // ✅ Log activity ก่อน redirect (สำคัญมาก! เพราะหลัง redirect จะไม่สามารถเก็บ log ได้)
     logUserActivity({
