@@ -76,7 +76,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
       const positions: { [key: string]: { left: number; top: number } } = {};
 
       config.fields.forEach(field => {
-        console.log('field', field);
+        // console.log('field', field);
         // Convert percentage to pixels
         const leftPx = (field.x / 100) * containerWidth;
         let topPx = (field.y / 100) * containerHeight;
@@ -117,6 +117,8 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
           } else if (field.toFitType === 'scale' && !(isRowNoField && hasRowNoOffset)) {
             topPx -= 23;
           }
+
+          topPx -= 3;
         }
         else if (field.key === 'profile_picture') {
           topPx -= 0;
@@ -127,7 +129,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
           topPx -= 7;
         } else if (field.key === 'block' || field.key === 'bib' || field.key === 'first_name') {
           if (field.key === 'block') {
-            console.log('block', field);
+          
             const blockValue = runner.block;
             if (blockValue && String(blockValue).startsWith('Defer')) {
               topPx -= 12;
@@ -146,6 +148,10 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
             topPx -= 15;
           }
         }
+        // ขยับ pre_order เฉพาะตอน capture ให้ตรงกับ preview
+        else if (field.key === 'pre_order') {
+          topPx -= 15;
+        }  
         else {
           topPx -= 9;
         }
@@ -678,7 +684,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
               const profileUrl = profilePictureUrl || field.profilePicture || `https://via.placeholder.com/${profileWidth}x${profileHeight}?text=Profile`;
 
               const borderRadius = profileShape === 'circle' ? '50%' : '0';
-              
+
               return (
                   <img
                     src={profileUrl}
