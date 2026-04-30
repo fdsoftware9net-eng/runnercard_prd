@@ -246,6 +246,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     try {
       const templateContainer = templateContainerRef.current;
 
+ 
       // --- ส่วนที่ 2: จัดการ Layout และ html2canvas (เหมือนเดิม) ---
       const actualWidth = templateContainer.offsetWidth;
       const actualHeight = templateContainer.offsetHeight;
@@ -779,7 +780,8 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                   </Button>
 
                   <Button onClick={handleLinkLINEAccount} className="w-full bg-green-600 hover:bg-green-700 text-white focus:ring-green-500">
-                    {isThai ? 'กดรับผลวิ่งอัตโนมัติ' : 'Auto Receive Race Result'}
+                   {/* {isThai ? 'กดรับผลวิ่งอัตโนมัติ' : 'Auto Receive Race Result'} */}
+                   {isThai ? 'กดรับรูป Photo Thairun' : 'Press to receive Photo Thairun'} 
                   </Button>
                   {<div className="border-t border-gray-700 pt-4">
                     <h3 className="text-lg font-semibold mb-3 text-white">
