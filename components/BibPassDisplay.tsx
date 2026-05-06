@@ -325,7 +325,6 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     setIsSavingImage(true);
 
     const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
-    const isAndroid = /Android/.test(userAgent);
     const isMobile = isIOS || isAndroid;
 
     const hasCard2 = runner.first_half?.toLowerCase() === 'yes' && webConfig2 && templateContainerRef2.current;
