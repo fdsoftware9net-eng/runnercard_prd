@@ -406,23 +406,16 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       const fileName1 = `RunnerCard1_${runner.bib}.png`;
       const fileName2 = `RunnerCard2_${runner.bib}.png`;
 
-      if (isIOS && navigator.canShare) {
-        // iOS: share ทั้ง 2 ไฟล์พร้อมกันในครั้งเดียว เพื่อป้องกัน iOS block การ share ครั้งที่ 2
-        const filesToShare: File[] = [new File([blob1], fileName1, { type: 'image/png' })];
-        if (blob2) filesToShare.push(new File([blob2], fileName2, { type: 'image/png' }));
+      const filesToShare: File[] = [new File([blob1], fileName1, { type: 'image/png' })];
+      if (blob2) filesToShare.push(new File([blob2], fileName2, { type: 'image/png' }));
 
-        if (navigator.canShare({ files: filesToShare })) {
-          try {
-            await navigator.share({ files: filesToShare, title: 'Runner Cards' });
-          } catch {
-            // fallback: download แยก
-            performDownload(blob1, fileName1);
-            if (blob2) {
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              performDownload(blob2, fileName2);
-            }
-          }
-        } else {
+      if (navigator.canShare && navigator.canShare({ files: filesToShare })) {
+        // iOS + Android: share ทั้ง 2 ไฟล์พร้อมกันในครั้งเดียวผ่าน native share sheet
+        // ป้องกัน browser block การ download ที่ 2 ที่ห่างจาก user gesture
+        try {
+          await navigator.share({ files: filesToShare, title: 'Runner Cards' });
+        } catch {
+          // fallback: download แยก (desktop หรือกรณี share ถูก cancel)
           performDownload(blob1, fileName1);
           if (blob2) {
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -430,7 +423,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
           }
         }
       } else {
-        // Non-iOS: download ทีละไฟล์
+        // Desktop: download ทีละไฟล์
         performDownload(blob1, fileName1);
         if (blob2) {
           await new Promise(resolve => setTimeout(resolve, 1000));
