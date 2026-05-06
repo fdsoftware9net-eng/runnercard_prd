@@ -4,7 +4,8 @@ import { v4 as uuidv4 } from 'uuid';
 export const RUNNER_COLUMNS: (keyof Runner)[] = [
     "first_name", "last_name", "id_card_hash", "bib", "name_on_bib",
     "race_kit", "row", "row_no", "shirt", "shirt_type", "gender", "nationality", "age_category",
-    "block", "wave_start", "pre_order", "first_half_marathon", "note", "top_50_no", "top50", "colour_sign", "qr", "access_key"
+    "block", "wave_start", "pre_order", "first_half_marathon", "first_half", "note", "top_50_no", "top50", "colour_sign", "qr", "access_key",
+    "motivational_message"
 ];
 
 export const DEFAULT_FIELD_MAPPINGS: FieldMappingsConfig = {

@@ -16,6 +16,17 @@ import html2canvas from 'html2canvas';
 const GOOGLE_WALLET_EDGE_FUNCTION_URL = '/functions/v1/generate-google-wallet-pass';
 const APPLE_WALLET_EDGE_FUNCTION_URL = '/functions/v1/generate-apple-wallet-pass';
 
+const MOTIVATIONAL_MESSAGES = [
+  'เป็นกำลังใจให้เราด้วยนะกั้บ',
+  'ฮาล์ฟแรกเราต้องรอด',
+  'ระวังโดนฮาล์ฟแรกแซงนะค้าบบบ',
+  'ถึงจะวิ่งๆ พักๆ แต่ถ้ารักแล้วไม่เลิกนะ',
+  'เพซก็อยากคุม แต่ไก่ทอดหาดใหญ่ก็อยากกิน',
+  'ฮาล์ฟแรกไม่เป็นไร ฮาล์ฟต่อไปพอเลย  ครั้งนี้ ใครรีบ.. ไปก่อนเลย  ฮาล์ฟแรกต้องมีชัย..แต่ถ้ามีจัยก็ไลน์มา',
+  'ฮาล์ฟแรกเป็นแล้ว ขอเป็นแฟนคนแรกบ้างได้มั้ย  หาดใหญ่ ใจดีกับเราโด้ยยยย',
+  'วิ่ง 21k ครั้งแรกเรียกเฟิร์สฮาล์ฟ แต่ถ้ารักเธอละค้าบบ ต้องเรียกอะไร ฮาล์ฟแรกจ๋าๆๆๆ พี่มาแล้วๆๆๆ',
+];
+
 interface BibPassDisplayProps {
 
 }
@@ -39,10 +50,18 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
   const [walletError, setWalletError] = useState<string | null>(null);
   const [isSavingImage, setIsSavingImage] = useState(false);
 
+  // Card 2 state
+  const [webConfig2, setWebConfig2] = useState<WebPassConfig | null>(null);
+  const [randomMessage] = useState<string>(
+    () => MOTIVATIONAL_MESSAGES[Math.floor(Math.random() * MOTIVATIONAL_MESSAGES.length)]
+  );
+
   // Ref for the container we want to capture
   const passContainerRef = useRef<HTMLDivElement>(null);
   const templateContainerRef = useRef<HTMLDivElement | null>(null);
+  const templateContainerRef2 = useRef<HTMLDivElement | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isCapturing2, setIsCapturing2] = useState(false);
 
   const fetchRunnerData = useCallback(async (key: string) => {
     setLoading(true);
@@ -103,6 +122,31 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         fields: (selectedConfig.fields && selectedConfig.fields.length > 0) ? selectedConfig.fields : (DEFAULT_CONFIG.web_pass_config?.fields || [])
       });
 
+      // Load Card 2 config
+      if (configResult.data) {
+        const templates2 = configResult.data.web_bib_templates_2 || [];
+        const rules2 = configResult.data.template_assignment_rules_bib_2 || [];
+
+        if (templates2.length > 0) {
+          let selectedConfig2 = templates2[0];
+
+          if (runnerResult.data) {
+            for (const rule of rules2) {
+              if (rule.operator === 'equals') {
+                const runnerValue = String(runnerResult.data[rule.column] || '').trim();
+                const ruleValue = String(rule.value || '').trim();
+                if (runnerValue === ruleValue) {
+                  const found = templates2.find(t => t.id === rule.template_id);
+                  if (found) { selectedConfig2 = found; break; }
+                }
+              }
+            }
+          }
+
+          setWebConfig2(selectedConfig2);
+        }
+      }
+
       if (runnerResult.data) {
         setRunner(runnerResult.data);
         console.log('runnerResult.data', runnerResult.data);
@@ -158,6 +202,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       setIsVerified(true);
     }
   }, [runner]);
+
 
   const handleVerification = useCallback(() => {
     if (!runner) return;
@@ -242,18 +287,17 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
     setIsSavingImage(true);
     setIsCapturing(true);
+    setIsCapturing2(true);
 
-    try {
-      const templateContainer = templateContainerRef.current;
+    const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
 
- 
-      // --- ส่วนที่ 2: จัดการ Layout และ html2canvas (เหมือนเดิม) ---
-      const actualWidth = templateContainer.offsetWidth;
-      const actualHeight = templateContainer.offsetHeight;
-      const originalWidth = templateContainer.style.width;
-      const originalMaxWidth = templateContainer.style.maxWidth;
-      templateContainer.style.width = `${actualWidth}px`;
-      templateContainer.style.maxWidth = `${actualWidth}px`;
+    const captureContainer = async (container: HTMLDivElement): Promise<Blob> => {
+      const actualWidth = container.offsetWidth;
+      const actualHeight = container.offsetHeight;
+      const originalWidth = container.style.width;
+      const originalMaxWidth = container.style.maxWidth;
+      container.style.width = `${actualWidth}px`;
+      container.style.maxWidth = `${actualWidth}px`;
 
       await new Promise(resolve => {
         requestAnimationFrame(() => {
@@ -263,7 +307,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         });
       });
 
-      const canvas = await html2canvas(templateContainer, {
+      const canvas = await html2canvas(container, {
         scale: 2,
         backgroundColor: null,
         useCORS: true,
@@ -273,62 +317,81 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         allowTaint: false
       });
 
-      // คืนค่า Layout เดิม
-      templateContainer.style.width = originalWidth;
-      templateContainer.style.maxWidth = originalMaxWidth;
-      setIsCapturing(false);
+      container.style.width = originalWidth;
+      container.style.maxWidth = originalMaxWidth;
 
-      // --- ส่วนที่ 3: เตรียมไฟล์รูปภาพ ---
-      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-      if (!blob) throw new Error("Create Blob Failed");
+      const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('Create Blob Failed');
+      return blob;
+    };
 
-      const fileName = `RunnerPass_${runner.bib}.png`;
-      const file = new File([blob as unknown as BlobPart], fileName, { type: 'image/png' });
-      const objectUrl = URL.createObjectURL(blob as Blob);
+    const performDownload = (blob: Blob, fileName: string) => {
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
+    };
 
-      // --- ส่วนที่ 4: เช็ค OS และแยก Flow การทำงาน (iOS และ Browser ปกติ) ---
-      const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
+    try {
+      // --- Capture ทั้ง 2 ก่อน แล้วค่อย download ---
+      const blob1 = await captureContainer(templateContainerRef.current!);
 
-      const performDownload = () => {
-        const link = document.createElement('a');
-        link.href = objectUrl;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
-      };
-
-      if (isIOS) {
-        // [CASE iOS]: ใช้ Share Sheet
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          try {
-            await navigator.share({
-              files: [file],
-              title: 'Runner Pass',
-              text: 'Here is my runner pass!',
-            });
-            URL.revokeObjectURL(objectUrl);
-          } catch (shareError) {
-            performDownload();
-          }
-        } else {
-          performDownload();
-        }
-      } else {
-        // [CASE Android Chrome / Desktop]: ดาวน์โหลดปกติ
-        // (เพราะ LINE/FB ถูกดักจับไปตั้งแต่ต้นฟังก์ชันแล้ว)
-        performDownload();
+      const hasCard2 = runner.first_half?.toLowerCase() === 'yes' && webConfig2 && templateContainerRef2.current;
+      let blob2: Blob | null = null;
+      if (hasCard2) {
+        blob2 = await captureContainer(templateContainerRef2.current!);
       }
 
-      // Log activity
+      // ปิด capturing หลัง capture เสร็จทั้งคู่ก่อน download
+      setIsCapturing(false);
+      setIsCapturing2(false);
+
+      const fileName1 = `RunnerCard1_${runner.bib}.png`;
+      const fileName2 = `RunnerCard2_${runner.bib}.png`;
+
+      if (isIOS && navigator.canShare) {
+        // iOS: share ทั้ง 2 ไฟล์พร้อมกันในครั้งเดียว เพื่อป้องกัน iOS block การ share ครั้งที่ 2
+        const filesToShare: File[] = [new File([blob1], fileName1, { type: 'image/png' })];
+        if (blob2) filesToShare.push(new File([blob2], fileName2, { type: 'image/png' }));
+
+        if (navigator.canShare({ files: filesToShare })) {
+          try {
+            await navigator.share({ files: filesToShare, title: 'Runner Cards' });
+          } catch {
+            // fallback: download แยก
+            performDownload(blob1, fileName1);
+            if (blob2) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              performDownload(blob2, fileName2);
+            }
+          }
+        } else {
+          performDownload(blob1, fileName1);
+          if (blob2) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            performDownload(blob2, fileName2);
+          }
+        }
+      } else {
+        // Non-iOS: download ทีละไฟล์
+        performDownload(blob1, fileName1);
+        if (blob2) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          performDownload(blob2, fileName2);
+        }
+      }
+
       logUserActivity({
         activity_type: 'save_image',
         runner_id: runner.id || null,
         success: true,
         metadata: {
           image_format: 'png',
-          file_name: fileName,
+          file_name: fileName1,
         },
       }).catch((err) => console.warn('Failed log:', err));
 
@@ -336,9 +399,8 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       console.error("Failed to generate image:", err);
       setWalletError("Failed to save image. Please try again.");
       setIsCapturing(false);
+      setIsCapturing2(false);
 
-
-      // Log failed...
       if (runner?.id) {
         logUserActivity({
           activity_type: 'save_image',
@@ -352,7 +414,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     } finally {
       setIsSavingImage(false);
     }
-  }, [runner]);
+  }, [runner, webConfig2]);
 
   const handleAddPassportToWallet = useCallback(async (walletType: 'google' | 'apple') => {
     setWalletError(null);
@@ -728,9 +790,9 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
       <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left: Visual Pass (Using New Template) */}
-        <div className="order-2 lg:order-1 flex flex-col">
-          {/* Wrap the template in a div with a ref for html2canvas */}
-          <div style={{ width: 'fit-content', position: 'relative' }}>
+        <div className="order-2 lg:order-1 flex flex-col gap-6 w-full overflow-hidden">
+          {/* Card 1 */}
+          <div className="w-full">
             <div ref={passContainerRef}>
               <BibPassTemplate
                 runner={runner}
@@ -742,7 +804,20 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
             </div>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-gray-700 w-full">
+          {/* Card 2 — shown only when first_half === 'Yes' and config exists */}
+          {runner.first_half?.toLowerCase() === 'yes' && webConfig2 && (
+            <div className="w-full">
+              <BibPassTemplate
+                runner={{ ...runner, motivational_message: randomMessage }}
+                config={webConfig2}
+                qrCodeUrl={bibPassQrCodeUrl}
+                containerRefCallback={(ref) => { templateContainerRef2.current = ref; }}
+                isCapturing={isCapturing2}
+              />
+            </div>
+          )}
+
+          <div className="mt-2 pt-6 border-t border-gray-700 w-full">
             <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
               <span className="font-medium">Make your run more fun by</span>
               <a

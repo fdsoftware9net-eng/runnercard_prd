@@ -22,6 +22,7 @@ import AnalyticsDashboard from './components/AnalyticsDashboard';
 import CropBibCard from './pages/share/CropBibCard';
 import SharePage from './pages/share';
 import BibConfigPage from './pages/bibConfig/BibConfig';
+import BibConfig2Page from './pages/bibConfig/BibConfig2';
 
 
 // AuthGuard to protect routes
@@ -109,6 +110,7 @@ const App: React.FC = () => {
             <Route path="/web-pass-config" element={<WebPassConfigPage />} />
             <Route path="/url-config" element={<UrlConfigPage />} />
             <Route path="/bib-config" element={<BibConfigPage />} />
+            <Route path="/bib-config-2" element={<BibConfig2Page />} />
           </Route>
         </Route>
         

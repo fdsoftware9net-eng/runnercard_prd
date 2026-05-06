@@ -28,7 +28,10 @@ const MainLayout: React.FC = () => {
                             <Button variant="secondary" size="sm">Lookup Page</Button>
                         </Link>
                         <Link to="/bib-config">
-                            <Button variant="secondary" size="sm">Bib Config</Button>
+                            <Button variant="secondary" size="sm">Bib Card 1</Button>
+                        </Link>
+                        <Link to="/bib-config-2">
+                            <Button variant="secondary" size="sm">Bib Card 2</Button>
                         </Link>
                         <Link to="/web-pass-config">
                             <Button variant="secondary" size="sm">Web Pass</Button>
