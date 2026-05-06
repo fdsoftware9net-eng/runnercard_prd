@@ -142,7 +142,7 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
       "first_name", "last_name", "bib", "race_kit",
       "row", "row_no", "shirt", "shirt_type", "gender", "nationality", "age_category",
       "block", "wave_start", "pre_order", "first_half_marathon", "note",
-      "top_50_no", "top50", "colour_sign", "qr", "id_card_hash"
+      "top_50_no", "top50", "colour_sign", "qr", "first_half", "id_card_hash"
     ];
 
     for (const key of keysToCompare) {
