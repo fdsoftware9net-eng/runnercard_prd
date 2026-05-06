@@ -325,6 +325,8 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     setIsSavingImage(true);
 
     const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
+    const isAndroid = /Android/.test(userAgent);
+    const isMobile = isIOS || isAndroid;
 
     const hasCard2 = runner.first_half?.toLowerCase() === 'yes' && webConfig2 && templateContainerRef2.current;
 
@@ -409,13 +411,12 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       const filesToShare: File[] = [new File([blob1], fileName1, { type: 'image/png' })];
       if (blob2) filesToShare.push(new File([blob2], fileName2, { type: 'image/png' }));
 
-      if (navigator.canShare && navigator.canShare({ files: filesToShare })) {
-        // iOS + Android: share ทั้ง 2 ไฟล์พร้อมกันในครั้งเดียวผ่าน native share sheet
-        // ป้องกัน browser block การ download ที่ 2 ที่ห่างจาก user gesture
+      if (isMobile && navigator.canShare && navigator.canShare({ files: filesToShare })) {
+        // iOS + Android: share ทั้ง 2 ไฟล์พร้อมกันผ่าน native share sheet
         try {
           await navigator.share({ files: filesToShare, title: 'Runner Cards' });
         } catch {
-          // fallback: download แยก (desktop หรือกรณี share ถูก cancel)
+          // fallback: download แยก (กรณี share ถูก cancel)
           performDownload(blob1, fileName1);
           if (blob2) {
             await new Promise(resolve => setTimeout(resolve, 1000));
