@@ -22,9 +22,13 @@ const MOTIVATIONAL_MESSAGES = [
   'ระวังโดนฮาล์ฟแรกแซงนะค้าบบบ',
   'ถึงจะวิ่งๆ พักๆ แต่ถ้ารักแล้วไม่เลิกนะ',
   'เพซก็อยากคุม แต่ไก่ทอดหาดใหญ่ก็อยากกิน',
-  'ฮาล์ฟแรกไม่เป็นไร ฮาล์ฟต่อไปพอเลย  ครั้งนี้ ใครรีบ.. ไปก่อนเลย  ฮาล์ฟแรกต้องมีชัย..แต่ถ้ามีจัยก็ไลน์มา',
-  'ฮาล์ฟแรกเป็นแล้ว ขอเป็นแฟนคนแรกบ้างได้มั้ย  หาดใหญ่ ใจดีกับเราโด้ยยยย',
-  'วิ่ง 21k ครั้งแรกเรียกเฟิร์สฮาล์ฟ แต่ถ้ารักเธอละค้าบบ ต้องเรียกอะไร ฮาล์ฟแรกจ๋าๆๆๆ พี่มาแล้วๆๆๆ',
+  'ฮาล์ฟแรกไม่เป็นไร ฮาล์ฟต่อไปพอเลย',
+  'ครั้งนี้ ใครรีบ.. ไปก่อนเลย',
+  'ฮาล์ฟแรกต้องมีชัย..แต่ถ้ามีจัยก็ไลน์มา',
+  'ฮาล์ฟแรกเป็นแล้ว ขอเป็นแฟนคนแรกบ้างได้มั้ย',
+  'หาดใหญ่ ใจดีกับเราโด้ยยยย',
+  'วิ่ง 21k ครั้งแรกเรียกเฟิร์สฮาล์ฟ แต่ถ้ารักเธอละค้าบบ ต้องเรียกอะไร',
+  'ฮาล์ฟแรกจ๋าๆๆๆ พี่มาแล้วๆๆๆ',
 ];
 
 interface BibPassDisplayProps {
@@ -62,6 +66,16 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
   const templateContainerRef2 = useRef<HTMLDivElement | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isCapturing2, setIsCapturing2] = useState(false);
+
+  // Mobile scale refs/state
+  const cardColumnRef = useRef<HTMLDivElement>(null);
+  const card1OuterRef = useRef<HTMLDivElement>(null);
+  const card1ScaleWrapperRef = useRef<HTMLDivElement>(null);
+  const card2OuterRef = useRef<HTMLDivElement>(null);
+  const card2ScaleWrapperRef = useRef<HTMLDivElement>(null);
+  const [cardScale, setCardScale] = useState(1);
+  const [card1Height, setCard1Height] = useState(0);
+  const [card2Height, setCard2Height] = useState(0);
 
   const fetchRunnerData = useCallback(async (key: string) => {
     setLoading(true);
@@ -203,6 +217,29 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     }
   }, [runner]);
 
+  useEffect(() => {
+    const updateScale = () => {
+      if (!cardColumnRef.current) return;
+      const available = cardColumnRef.current.offsetWidth;
+      const newScale = Math.min(1, available / 450);
+      setCardScale(newScale);
+      if (card1ScaleWrapperRef.current) {
+        setCard1Height(card1ScaleWrapperRef.current.offsetHeight);
+      }
+      if (card2ScaleWrapperRef.current) {
+        setCard2Height(card2ScaleWrapperRef.current.offsetHeight);
+      }
+    };
+
+    updateScale();
+    const timer = setTimeout(updateScale, 600);
+    window.addEventListener('resize', updateScale);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', updateScale);
+    };
+  }, [runner, webConfig2]);
+
 
   const handleVerification = useCallback(() => {
     if (!runner) return;
@@ -286,18 +323,28 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     // =================================================================================
 
     setIsSavingImage(true);
-    setIsCapturing(true);
-    setIsCapturing2(true);
 
     const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
+
+    const hasCard2 = runner.first_half?.toLowerCase() === 'yes' && webConfig2 && templateContainerRef2.current;
+
+    const removeScaleForCapture = () => {
+      if (card1ScaleWrapperRef.current) card1ScaleWrapperRef.current.style.transform = 'none';
+      if (card1OuterRef.current) { card1OuterRef.current.style.height = 'auto'; card1OuterRef.current.style.overflow = 'visible'; }
+      if (hasCard2 && card2ScaleWrapperRef.current) card2ScaleWrapperRef.current.style.transform = 'none';
+      if (hasCard2 && card2OuterRef.current) { card2OuterRef.current.style.height = 'auto'; card2OuterRef.current.style.overflow = 'visible'; }
+    };
+
+    const restoreScaleAfterCapture = () => {
+      if (card1ScaleWrapperRef.current) card1ScaleWrapperRef.current.style.transform = `scale(${cardScale})`;
+      if (card1OuterRef.current) { card1OuterRef.current.style.height = card1Height > 0 ? `${Math.ceil(card1Height * cardScale)}px` : 'auto'; card1OuterRef.current.style.overflow = 'hidden'; }
+      if (card2ScaleWrapperRef.current) card2ScaleWrapperRef.current.style.transform = `scale(${cardScale})`;
+      if (card2OuterRef.current) { card2OuterRef.current.style.height = card2Height > 0 ? `${Math.ceil(card2Height * cardScale)}px` : 'auto'; card2OuterRef.current.style.overflow = 'hidden'; }
+    };
 
     const captureContainer = async (container: HTMLDivElement): Promise<Blob> => {
       const actualWidth = container.offsetWidth;
       const actualHeight = container.offsetHeight;
-      const originalWidth = container.style.width;
-      const originalMaxWidth = container.style.maxWidth;
-      container.style.width = `${actualWidth}px`;
-      container.style.maxWidth = `${actualWidth}px`;
 
       await new Promise(resolve => {
         requestAnimationFrame(() => {
@@ -317,9 +364,6 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         allowTaint: false
       });
 
-      container.style.width = originalWidth;
-      container.style.maxWidth = originalMaxWidth;
-
       const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
       if (!blob) throw new Error('Create Blob Failed');
       return blob;
@@ -337,18 +381,27 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     };
 
     try {
-      // --- Capture ทั้ง 2 ก่อน แล้วค่อย download ---
-      const blob1 = await captureContainer(templateContainerRef.current!);
+      // 1. Remove scale transforms so html2canvas captures at natural 450px layout
+      removeScaleForCapture();
 
-      const hasCard2 = runner.first_half?.toLowerCase() === 'yes' && webConfig2 && templateContainerRef2.current;
+      // 2. Wait for layout to settle after transform removal
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100))));
+
+      // 3. Trigger pixel position recalculation in BibPassTemplate
+      setIsCapturing(true);
+      if (hasCard2) setIsCapturing2(true);
+
+      // 4. Capture both cards (captureContainer waits 300ms internally for re-render)
+      const blob1 = await captureContainer(templateContainerRef.current!);
       let blob2: Blob | null = null;
       if (hasCard2) {
         blob2 = await captureContainer(templateContainerRef2.current!);
       }
 
-      // ปิด capturing หลัง capture เสร็จทั้งคู่ก่อน download
+      // 5. Turn off capturing and restore scale transforms
       setIsCapturing(false);
       setIsCapturing2(false);
+      restoreScaleAfterCapture();
 
       const fileName1 = `RunnerCard1_${runner.bib}.png`;
       const fileName2 = `RunnerCard2_${runner.bib}.png`;
@@ -400,6 +453,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       setWalletError("Failed to save image. Please try again.");
       setIsCapturing(false);
       setIsCapturing2(false);
+      restoreScaleAfterCapture();
 
       if (runner?.id) {
         logUserActivity({
@@ -785,35 +839,59 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4 flex flex-col items-center">
+    <div className="min-h-screen bg-gray-900 text-white p-4 flex flex-col items-center overflow-x-hidden">
       <h1 className="text-3xl font-extrabold mb-8 text-blue-400">Runner Card</h1>
 
       <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left: Visual Pass (Using New Template) */}
-        <div className="order-2 lg:order-1 flex flex-col gap-6 w-full overflow-hidden">
+        <div ref={cardColumnRef} className="order-2 lg:order-1 flex flex-col gap-6 w-full">
           {/* Card 1 */}
-          <div className="w-full">
-            <div ref={passContainerRef}>
-              <BibPassTemplate
-                runner={runner}
-                config={webConfig}
-                qrCodeUrl={bibPassQrCodeUrl}
-                containerRefCallback={(ref) => { templateContainerRef.current = ref; }}
-                isCapturing={isCapturing}
-              />
+          <div ref={card1OuterRef} style={{
+            height: card1Height > 0 ? `${Math.ceil(card1Height * cardScale)}px` : 'auto',
+            overflow: 'hidden',
+          }}>
+            <div
+              ref={card1ScaleWrapperRef}
+              style={{
+                transform: `scale(${cardScale})`,
+                transformOrigin: 'top left',
+                width: '450px',
+              }}
+            >
+              <div ref={passContainerRef}>
+                <BibPassTemplate
+                  runner={runner}
+                  config={webConfig}
+                  qrCodeUrl={bibPassQrCodeUrl}
+                  containerRefCallback={(ref) => { templateContainerRef.current = ref; }}
+                  isCapturing={isCapturing}
+                />
+              </div>
             </div>
           </div>
 
           {/* Card 2 — shown only when first_half === 'Yes' and config exists */}
           {runner.first_half?.toLowerCase() === 'yes' && webConfig2 && (
-            <div className="w-full">
-              <BibPassTemplate
-                runner={{ ...runner, motivational_message: randomMessage }}
-                config={webConfig2}
-                qrCodeUrl={bibPassQrCodeUrl}
-                containerRefCallback={(ref) => { templateContainerRef2.current = ref; }}
-                isCapturing={isCapturing2}
-              />
+            <div ref={card2OuterRef} style={{
+              height: card2Height > 0 ? `${Math.ceil(card2Height * cardScale)}px` : 'auto',
+              overflow: 'hidden',
+            }}>
+              <div
+                ref={card2ScaleWrapperRef}
+                style={{
+                  transform: `scale(${cardScale})`,
+                  transformOrigin: 'top left',
+                  width: '450px',
+                }}
+              >
+                <BibPassTemplate
+                  runner={{ ...runner, motivational_message: randomMessage }}
+                  config={webConfig2}
+                  qrCodeUrl={bibPassQrCodeUrl}
+                  containerRefCallback={(ref) => { templateContainerRef2.current = ref; }}
+                  isCapturing={isCapturing2}
+                />
+              </div>
             </div>
           )}
 
