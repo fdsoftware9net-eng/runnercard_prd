@@ -62,7 +62,7 @@ const escapeCsvValue = (value: string | number | boolean | null | undefined): st
 
 
 // Define available columns with labels
-type ColumnKey = 'bib' | 'name' | 'wave_start' | 'race_kit' | 'row' | 'row_no' | 'shirt' | 'shirt_type' | 'gender' | 'nationality' | 'age_category' | 'block' | 'pre_order' | 'first_half_marathon' | 'note' | 'top_50_no' | 'top50' | 'colour_sign' | 'qr' | 'bib_pass_link';
+type ColumnKey = 'bib' | 'name' | 'wave_start' | 'race_kit' | 'row' | 'row_no' | 'shirt' | 'shirt_type' | 'gender' | 'nationality' | 'age_category' | 'block' | 'pre_order' | 'first_half_marathon' | 'note' | 'top_50_no' | 'top50' | 'colour_sign' | 'qr' | 'first_half' | 'bib_pass_link';
 
 const AVAILABLE_COLUMNS: { key: ColumnKey; label: string }[] = [
   { key: 'name', label: 'Name' },
@@ -84,6 +84,7 @@ const AVAILABLE_COLUMNS: { key: ColumnKey; label: string }[] = [
   { key: 'top50', label: 'TOP 50' },
   { key: 'colour_sign', label: 'Colour Sign' },
   { key: 'qr', label: 'QR' },
+  { key: 'first_half', label: '1st Half' },
   { key: 'bib_pass_link', label: 'Bib Pass Link' },
 ];
 
@@ -570,6 +571,7 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
                   {visibleColumns.has('top50') && <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">TOP 50</th>}
                   {visibleColumns.has('colour_sign') && <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Colour Sign</th>}
                   {visibleColumns.has('qr') && <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">QR</th>}
+                  {visibleColumns.has('first_half') && <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">1st Half</th>}
                   {visibleColumns.has('bib_pass_link') && <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Bib Pass Link</th>}
                   <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
                 </tr>
@@ -596,6 +598,7 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
                     {visibleColumns.has('top50') && <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-200">{runner.top50}</td>}
                     {visibleColumns.has('colour_sign') && <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-200">{runner.colour_sign}</td>}
                     {visibleColumns.has('qr') && <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-200">{runner.qr}</td>}
+                    {visibleColumns.has('first_half') && <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-200">{runner.first_half}</td>}
                     {visibleColumns.has('bib_pass_link') && (
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-blue-400 hover:text-blue-300">
                         {runner.access_key && (
@@ -777,13 +780,6 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
                   value={editForm.pre_order || ''}
                   onChange={handleEditFormChange}
                 />
-                <Input // Changed from Select to Input
-                  id="edit-first_half_marathon"
-                  label="First Half Marathon"
-                  name="first_half_marathon"
-                  value={editForm.first_half_marathon || ''}
-                  onChange={handleEditFormChange}
-                />
                 <Input
                   id="edit-note"
                   label="Note"
@@ -819,6 +815,20 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
                   value={editForm.qr || ''}
                   onChange={handleEditFormChange}
                 />
+                <div>
+                  <label htmlFor="edit-first_half" className="block text-sm font-medium text-gray-300 mb-1">Show 1st Half</label>
+                  <select
+                    id="edit-first_half"
+                    name="first_half"
+                    value={(editForm.first_half || '').toUpperCase()}
+                    onChange={handleEditFormChange}
+                    className="block w-full px-3 py-2 border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 sm:text-sm bg-gray-700 border-gray-600 text-white focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">-- NOT SET --</option>
+                    <option value="YES">YES</option>
+                    <option value="NO">NO</option>
+                  </select>
+                </div>
               </div>
             )}
           </>
