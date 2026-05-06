@@ -21,6 +21,7 @@ export interface Runner {
   wave_start: string;
   pre_order: string;
   first_half_marathon: string; // Changed to string (text in DB)
+  first_half?: string; // 'Yes' = receives Runner Card 2, 'No' or '' = does not
   note: string;
   top_50_no?: string; // TOP 50 Number
   top50?: string; // TOP 50 information
@@ -32,6 +33,7 @@ export interface Runner {
   access_key: string; // UUID for personalized bib pass links
   web_pass_template_id?: string; // ID of the WebPassConfig template to use
   google_wallet_pass_id?: string | null; // Google Wallet pass object ID
+  motivational_message?: string; // Runtime-only: random motivational message for Card 2
 }
 
 
@@ -324,8 +326,12 @@ export interface WalletConfig {
   lookup_page_instructions?: string;
 
   // New: Bib Pass Config (stored in JSONB)
-  web_bib_templates?: WebPassConfig[]; // List of available templates
-  template_assignment_rules_bib?: TemplateAssignmentRule[]; // Rules for auto-assigning templates
+  web_bib_templates?: WebPassConfig[]; // List of available templates (Card 1)
+  template_assignment_rules_bib?: TemplateAssignmentRule[]; // Rules for auto-assigning templates (Card 1)
+
+  // Runner Card 2 Config
+  web_bib_templates_2?: WebPassConfig[]; // List of available templates (Card 2)
+  template_assignment_rules_bib_2?: TemplateAssignmentRule[]; // Rules for auto-assigning templates (Card 2)
 }
 
 declare global {
