@@ -22,6 +22,9 @@ const MOTIVATIONAL_MESSAGES = [
   'ระวังโดนฮาล์ฟแรกแซงนะค้าบบบ',
   'ถึงจะวิ่งๆ พักๆ แต่ถ้ารักแล้วไม่เลิกนะ',
   'เพซก็อยากคุม แต่ไก่ทอดหาดใหญ่ก็อยากกิน',
+  'ฮาล์ฟแรกไม่เป็นไร ฮาล์ฟต่อไปพอเลย  ครั้งนี้ ใครรีบ.. ไปก่อนเลย  ฮาล์ฟแรกต้องมีชัย..แต่ถ้ามีจัยก็ไลน์มา',
+  'ฮาล์ฟแรกเป็นแล้ว ขอเป็นแฟนคนแรกบ้างได้มั้ย  หาดใหญ่ ใจดีกับเราโด้ยยยย',
+  'วิ่ง 21k ครั้งแรกเรียกเฟิร์สฮาล์ฟ แต่ถ้ารักเธอละค้าบบ ต้องเรียกอะไร ฮาล์ฟแรกจ๋าๆๆๆ พี่มาแล้วๆๆๆ',
 ];
 
 interface BibPassDisplayProps {
@@ -200,6 +203,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     }
   }, [runner]);
 
+
   const handleVerification = useCallback(() => {
     if (!runner) return;
 
@@ -321,48 +325,64 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       return blob;
     };
 
-    const downloadBlob = async (blob: Blob, fileName: string) => {
-      const file = new File([blob], fileName, { type: 'image/png' });
+    const performDownload = (blob: Blob, fileName: string) => {
       const objectUrl = URL.createObjectURL(blob);
-
-      const performDownload = () => {
-        const link = document.createElement('a');
-        link.href = objectUrl;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
-      };
-
-      if (isIOS && navigator.canShare && navigator.canShare({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file], title: 'Runner Pass', text: 'Here is my runner pass!' });
-          URL.revokeObjectURL(objectUrl);
-        } catch {
-          performDownload();
-        }
-      } else {
-        performDownload();
-      }
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 10000);
     };
 
     try {
-      // --- Card 1 ---
+      // --- Capture ทั้ง 2 ก่อน แล้วค่อย download ---
       const blob1 = await captureContainer(templateContainerRef.current!);
-      setIsCapturing(false);
-      const fileName1 = `RunnerCard1_${runner.bib}.png`;
-      await downloadBlob(blob1, fileName1);
 
-      // --- Card 2 (only if first_half === 'Yes' and template configured) ---
       const hasCard2 = runner.first_half?.toLowerCase() === 'yes' && webConfig2 && templateContainerRef2.current;
+      let blob2: Blob | null = null;
       if (hasCard2) {
-        const blob2 = await captureContainer(templateContainerRef2.current!);
-        setIsCapturing2(false);
-        const fileName2 = `RunnerCard2_${runner.bib}.png`;
-        await downloadBlob(blob2, fileName2);
+        blob2 = await captureContainer(templateContainerRef2.current!);
+      }
+
+      // ปิด capturing หลัง capture เสร็จทั้งคู่ก่อน download
+      setIsCapturing(false);
+      setIsCapturing2(false);
+
+      const fileName1 = `RunnerCard1_${runner.bib}.png`;
+      const fileName2 = `RunnerCard2_${runner.bib}.png`;
+
+      if (isIOS && navigator.canShare) {
+        // iOS: share ทั้ง 2 ไฟล์พร้อมกันในครั้งเดียว เพื่อป้องกัน iOS block การ share ครั้งที่ 2
+        const filesToShare: File[] = [new File([blob1], fileName1, { type: 'image/png' })];
+        if (blob2) filesToShare.push(new File([blob2], fileName2, { type: 'image/png' }));
+
+        if (navigator.canShare({ files: filesToShare })) {
+          try {
+            await navigator.share({ files: filesToShare, title: 'Runner Cards' });
+          } catch {
+            // fallback: download แยก
+            performDownload(blob1, fileName1);
+            if (blob2) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              performDownload(blob2, fileName2);
+            }
+          }
+        } else {
+          performDownload(blob1, fileName1);
+          if (blob2) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            performDownload(blob2, fileName2);
+          }
+        }
       } else {
-        setIsCapturing2(false);
+        // Non-iOS: download ทีละไฟล์
+        performDownload(blob1, fileName1);
+        if (blob2) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          performDownload(blob2, fileName2);
+        }
       }
 
       logUserActivity({
@@ -770,9 +790,9 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
       <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left: Visual Pass (Using New Template) */}
-        <div className="order-2 lg:order-1 flex flex-col gap-6">
+        <div className="order-2 lg:order-1 flex flex-col gap-6 w-full overflow-hidden">
           {/* Card 1 */}
-          <div style={{ width: 'fit-content', position: 'relative' }}>
+          <div className="w-full">
             <div ref={passContainerRef}>
               <BibPassTemplate
                 runner={runner}
@@ -786,7 +806,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
           {/* Card 2 — shown only when first_half === 'Yes' and config exists */}
           {runner.first_half?.toLowerCase() === 'yes' && webConfig2 && (
-            <div style={{ width: 'fit-content', position: 'relative' }}>
+            <div className="w-full">
               <BibPassTemplate
                 runner={{ ...runner, motivational_message: randomMessage }}
                 config={webConfig2}

@@ -140,6 +140,11 @@ const RunnerLookupPage: React.FC = () => {
     return (
         <div className="flex items-center justify-center min-h-screen bg-gray-900 p-4">
             <div className="w-full max-w-lg p-8 space-y-8 bg-gray-800 rounded-lg shadow-lg">
+                <img
+                    src="/hatyai21-banner.jpg"
+                    alt="HATYAi21 Run Awakening 2026"
+                    className="w-full rounded-lg object-cover"
+                />
                 <div>
                     <h2 className="text-3xl font-extrabold text-center text-white">
                         {config.lookup_page_title || 'Find Your Runner Card'}
