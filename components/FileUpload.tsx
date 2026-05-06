@@ -123,12 +123,20 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess, onUploadError 
               if (!match && field.key === 'id_card_hash') {
                 match = headers.find(h => {
                   const normalized = h.toLowerCase().replace(/_/g, '').replace(/\s/g, '').replace(/-/g, '');
-                  return normalized.includes('idcard') || 
-                         normalized.includes('idcardnumber') || 
+                  return normalized.includes('idcard') ||
+                         normalized.includes('idcardnumber') ||
                          normalized.includes('idnumber') ||
                          normalized.includes('cardnumber') ||
                          normalized.includes('เลขบัตร') ||
                          normalized.includes('บัตรประชาชน');
+                });
+              }
+
+              // "1st Half" won't match "firsthalf" by the generic normalizer — handle explicitly
+              if (!match && field.key === 'first_half') {
+                match = headers.find(h => {
+                  const normalized = h.toLowerCase().replace(/_/g, '').replace(/\s/g, '').replace(/-/g, '');
+                  return normalized === '1sthalf' || normalized === 'firsthalf' || normalized.includes('1sthalf');
                 });
               }
               
