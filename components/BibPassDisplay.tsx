@@ -912,7 +912,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                 <h2 className="text-2xl font-bold mb-4">
                   {isThai ? `ยินดีต้อนรับ, ${runner.first_name}` : `Welcome, ${runner.first_name}`}
                 </h2>
-                <p className="text-gray-300 mb-6">
+                <p className="hidden text-gray-300 mb-6">
                   {isThai
                     ? 'Runner Card ของคุณพร้อมแล้ว กรุณาบันทึกบัตรนี้เพื่อใช้แสดงในการรับเสื้อและเบอร์วิ่ง (Race Kit) พร้อมกับบัตรประชาชนตัวจริง'
                     : 'Your runner card is ready. Please save this card to present for race kit pick-up along with your original passport.'}
@@ -928,7 +928,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                   {/* <Button onClick={handleLinkLINEAccount} className="w-full bg-green-600 hover:bg-green-700 text-white focus:ring-green-500"> 
                    {isThai ? 'กดรับรูป Photo Thairun อัตโนมัติ' : 'Press to receive Photo Thairun. Auto'} 
                   </Button> */}
-                  {<div className="border-t border-gray-700 pt-4">
+                  {<div className="hidden border-t border-gray-700 pt-4">
                     <h3 className="text-lg font-semibold mb-3 text-white">
                       {isThai ? 'เพิ่มลงในกระเป๋าเงิน' : 'Add to Wallet'}
                     </h3>

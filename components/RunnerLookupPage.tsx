@@ -8,6 +8,37 @@ import Button from './Button';
 import LoadingSpinner from './LoadingSpinner';
 import Swal from 'sweetalert2';
 
+const RUNNER_NOT_FOUND_ERROR = 'RUNNER_NOT_FOUND';
+
+const RunnerNotFoundMessage: React.FC = () => (
+    <div className="p-3 text-left bg-red-900 text-red-200 rounded-md space-y-3 text-sm leading-relaxed">
+        <p>
+            สิทธิ์นักวิ่งเก่านี้ สำหรับนักวิ่งบางแสน21-2025 หากไม่พบข้อมูล กรุณาตรวจสอบตัวสะกดหรือหมายเลขบัตรประชาชนอีกครั้งหรือส่งหลักฐานการสมัคร/วิ่ง ให้แอดมินบางแสน21 ทาง line@{' '}
+            <a
+                href="https://lin.ee/tH8wIgy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-red-100 hover:text-white"
+            >
+                https://lin.ee/tH8wIgy
+            </a>
+        </p>
+        <p>
+            This eligibility is for Bangsaen21-2025 runners only.
+            If no data is found, please check your spelling or ID card number again.
+            Alternatively, you may send your registration/running proof to the Bangsaen21 admin via Line@{' '}
+            <a
+                href="https://lin.ee/tH8wIgy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-red-100 hover:text-white"
+            >
+                https://lin.ee/tH8wIgy
+            </a>
+        </p>
+    </div>
+);
+
 const RunnerLookupPage: React.FC = () => {
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
@@ -121,7 +152,7 @@ const RunnerLookupPage: React.FC = () => {
             } else if (result.error) {
                 setError(result.error);
             } else {
-                setError('Runner not found. Please check your details and try again.');
+                setError(RUNNER_NOT_FOUND_ERROR);
             }
         } catch (err: any) {
             console.error('Error in handleSubmit:', err);
@@ -141,8 +172,8 @@ const RunnerLookupPage: React.FC = () => {
         <div className="flex items-center justify-center min-h-screen bg-gray-900 p-4">
             <div className="w-full max-w-lg p-8 space-y-8 bg-gray-800 rounded-lg shadow-lg">
                 <img
-                    src="/hatyai21-banner.jpg"
-                    alt="HATYAi21 Run Awakening 2026"
+                    src="/bangsaen21-banner.jpg"
+                    alt="Bangsaen21"
                     className="w-full rounded-lg object-cover"
                 />
                 <div>
@@ -150,11 +181,21 @@ const RunnerLookupPage: React.FC = () => {
                         {config.lookup_page_title || 'Find Your Runner Card'}
                     </h2>
                     <p className="mt-2 text-center text-sm text-gray-400">
-                        {config.lookup_page_instructions || 'Enter your details below to find your pass.'}
+                        {/* {config.lookup_page_instructions || 'Enter your details below to find your pass.'} */}
+                        ตรวจสอบสิทธิ์สมัครบางแสน21-2026 รอบนักวิ่งเก่า <br/> 
+                        Bangsaen21-2026 Loyalty Round Eligibility Check
                     </p>
                 </div>
+
+                
+
+
                 <form className="mt-8 space-y-6" onSubmit={handleSubmit} noValidate>
-                    {error && <p className="p-3 text-center bg-red-900 text-red-200 rounded-md">{error}</p>}
+                    {error === RUNNER_NOT_FOUND_ERROR ? (
+                        <RunnerNotFoundMessage />
+                    ) : error ? (
+                        <p className="p-3 text-center bg-red-900 text-red-200 rounded-md">{error}</p>
+                    ) : null}
 
                     <div className="rounded-md shadow-sm -space-y-px">
                         <Input

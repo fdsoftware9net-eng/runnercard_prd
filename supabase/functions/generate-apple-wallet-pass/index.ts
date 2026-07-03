@@ -708,7 +708,8 @@ const handleRequest = async (c: any) => {
         } else {
             console.log(`🎨 Using configured background color: ${backgroundColor}`);
         }
-        
+
+   
         const passJson: any = {
             formatVersion: 1, // Required: Must be number, not string
             passTypeIdentifier: appleConfig.passTypeId, // Required
