@@ -178,7 +178,8 @@ const RunnerLookupPage: React.FC = () => {
                 />
                 <div>
                     <h2 className="text-3xl font-extrabold text-center text-white">
-                        {config.lookup_page_title || 'Find Your Runner Card'}
+                        {/* {config.lookup_page_title || 'Find Your Runner Card'} */}
+                        Bangsaen21-2026
                     </h2>
                     <p className="mt-2 text-center text-sm text-gray-400">
                         {/* {config.lookup_page_instructions || 'Enter your details below to find your pass.'} */}
