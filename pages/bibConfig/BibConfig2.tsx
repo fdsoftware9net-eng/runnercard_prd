@@ -516,12 +516,14 @@ const BibConfig2Page: React.FC = () => {
                                 id="fontFamily"
                                 name="fontFamily"
                                 value={webConfig.fontFamily || 'LINESeedSansTH'}
-                                onChange={(e) => setWebConfig(prev => ({ ...prev, fontFamily: e.target.value as 'LINESeedSansTH' | 'Uniform' | 'Uniform Condensed' | 'Uniform Extra Condensed' | 'sans-serif' }))}
+                                onChange={(e) => setWebConfig(prev => ({ ...prev, fontFamily: e.target.value as 'LINESeedSansTH' | 'Uniform' | 'Uniform Condensed' | 'Uniform Extra Condensed' | 'FC SaveSpace' | 'GreenKingsWood' | 'sans-serif' }))}
                             >
                                 <option value="LINESeedSansTH">LINESeedSansTH</option>
                                 <option value="Uniform">Uniform</option>
                                 <option value="Uniform Condensed">Uniform Condensed</option>
                                 <option value="Uniform Extra Condensed">Uniform Extra Condensed</option>
+                                <option value="FC SaveSpace">FC SaveSpace</option>
+                                <option value="GreenKingsWood">GreenKingsWood</option>
                                 <option value="sans-serif">Sans-serif</option>
                             </Select>
                         </div>
@@ -764,6 +766,8 @@ const BibConfig2Page: React.FC = () => {
                                                 <option value="Uniform">Uniform</option>
                                                 <option value="Uniform Condensed">Uniform Condensed</option>
                                                 <option value="Uniform Extra Condensed">Uniform Extra Condensed</option>
+                                                <option value="FC SaveSpace">FC SaveSpace</option>
+                                                <option value="GreenKingsWood">GreenKingsWood</option>
                                                 <option value="sans-serif">Sans-serif</option>
                                             </Select>
                                         </div>

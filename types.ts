@@ -262,7 +262,7 @@ export interface PassField {
   color: string;
   fontWeight: 'normal' | 'bold' | '800';
   textAlign: 'left' | 'center' | 'right';
-  fontFamily?: 'LINESeedSansTH' | 'Uniform' | 'Uniform Condensed' | 'Uniform Extra Condensed' | 'sans-serif'; // Font family for this field
+  fontFamily?: 'LINESeedSansTH' | 'Uniform' | 'Uniform Condensed' | 'Uniform Extra Condensed' | 'FC SaveSpace' | 'GreenKingsWood' | 'sans-serif'; // Font family for this field
   width?: number; // Percentage (0-100), useful for centering
   toFitType?: 'scale' | 'wrap' | 'fixed'; // How to fit the field to container: 'scale' (adjust font size), 'wrap' (wrap text), or 'fixed' (fixed width 300px, right-aligned)
   toFitWidth?: number; // Desired width in pixels when toFitType is set (e.g., 420 or 50)
@@ -285,7 +285,7 @@ export interface WebPassConfig {
   eventLogoUrl: string;
   backgroundImageUrl?: string;
   backgroundColor?: string;
-  fontFamily?: 'LINESeedSansTH' | 'Uniform' | 'Uniform Condensed' | 'Uniform Extra Condensed' | 'sans-serif'; // Font family selection
+  fontFamily?: 'LINESeedSansTH' | 'Uniform' | 'Uniform Condensed' | 'Uniform Extra Condensed' | 'FC SaveSpace' | 'GreenKingsWood' | 'sans-serif'; // Font family selection
 
   // Dynamic Fields
   fields: PassField[];
