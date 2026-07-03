@@ -173,18 +173,18 @@ const RunnerLookupPage: React.FC = () => {
             <div className="w-full max-w-lg p-8 space-y-8 bg-gray-800 rounded-lg shadow-lg">
                 <img
                     src="/bangsaen21-banner.jpg"
-                    alt="Bangsaen21"
+                    alt="BANGSEAN21"
                     className="w-full rounded-lg object-cover"
                 />
                 <div>
                     <h2 className="text-3xl font-extrabold text-center text-white">
                         {/* {config.lookup_page_title || 'Find Your Runner Card'} */}
-                        Bangsaen21-2026
+                        BANGSEAN21-2026
                     </h2>
                     <p className="mt-2 text-center text-sm text-gray-400">
                         {/* {config.lookup_page_instructions || 'Enter your details below to find your pass.'} */}
                         ตรวจสอบสิทธิ์สมัครบางแสน21-2026 รอบนักวิ่งเก่า <br/> 
-                        Bangsaen21-2026 Loyalty Round Eligibility Check
+                        BANGSEAN21-2026 Loyalty Round Eligibility Check
                     </p>
                 </div>
 
