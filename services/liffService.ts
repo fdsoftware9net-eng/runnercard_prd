@@ -144,7 +144,7 @@ export const ensureLoggedIn = async (): Promise<void> => {
     return;
   }
   if (!liff.isLoggedIn()) {
-    liff.login({ redirectUri: getLiffRedirectUri() });
+    liff.login();
     // liff.login() navigates away; nothing after this point will run.
   }
 };
