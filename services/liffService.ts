@@ -3,7 +3,23 @@ import { getConfig } from '../constants';
 
 const LIFF_QUERY_PARAM = 'src';
 const LIFF_QUERY_VALUE = 'liff';
+// Must stay in sync with the LIFF app's registered Endpoint URL path.
+const LIFF_ENTRY_PATH = '/liff-entry.html';
 const DEV_MOCK_LINE_USER_ID = 'DEV_MOCK_U0000000000000000000000000000';
+
+/**
+ * Where LINE should send the user back after login.
+ *
+ * This must point at the bounce page, NOT the current URL. liff.login()
+ * defaults redirectUri to wherever it is called from — which here is
+ * "/#/lookup?src=liff" — and LINE rejects any redirect_uri whose path falls
+ * outside the registered Endpoint URL ("/liff-entry.html"), answering with
+ * "400 Bad Request" on its login screen. Returning to the bounce page keeps
+ * the path valid, and the page then forwards back into the hash router with
+ * the user already logged in.
+ */
+const getLiffRedirectUri = (): string =>
+  `${window.location.origin}${LIFF_ENTRY_PATH}?${LIFF_QUERY_PARAM}=${LIFF_QUERY_VALUE}`;
 
 let initPromise: Promise<void> | null = null;
 let cachedLineUserId: string | null = null;
@@ -120,7 +136,7 @@ export const ensureLoggedIn = async (): Promise<void> => {
     return;
   }
   if (!liff.isLoggedIn()) {
-    liff.login();
+    liff.login({ redirectUri: getLiffRedirectUri() });
     // liff.login() navigates away; nothing after this point will run.
   }
 };
