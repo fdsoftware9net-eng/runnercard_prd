@@ -64,7 +64,7 @@ export interface BibPassData {
 
 // --- User Activity Log Interfaces ---
 
-export type ActivityType = 'lookup' | 'save_image' | 'add_google_wallet' | 'add_apple_wallet' | 'view_pass' | 'update_runner' | 'link_line_account';
+export type ActivityType = 'lookup' | 'save_image' | 'add_google_wallet' | 'add_apple_wallet' | 'view_pass' | 'update_runner' | 'link_line_account' | 'liff_register' | 'liff_send_image';
 export type SearchMethod = 'name' | 'id_card';
 
 export interface ActivityLogMetadata {
@@ -339,6 +339,13 @@ declare global {
   interface ImportMetaEnv {
     readonly VITE_SUPABASE_URL?: string;
     readonly VITE_SUPABASE_ANON_KEY?: string;
+    readonly VITE_LINE_LIFF_ID?: string;
+    readonly VITE_LIFF_FORCE_MOCK?: string;
+    readonly VITE_LIFF_MOCK_LINE_USER_ID?: string;
+    readonly VITE_LIFF_REAL_API?: string;
+    readonly VITE_LIFF_STOP_AFTER?: string;
+    readonly DEV: boolean;
+    readonly PROD: boolean;
   }
 
   interface ImportMeta {
@@ -350,6 +357,7 @@ declare global {
     __APP_ENV__: {
       SUPABASE_URL: string;
       SUPABASE_ANON_KEY: string;
+      LINE_LIFF_ID?: string;
     };
   }
 }

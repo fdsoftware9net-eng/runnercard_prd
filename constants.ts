@@ -4,6 +4,7 @@
 interface AppConfig {
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
+  LINE_LIFF_ID: string;
 }
 
 let memoizedConfig: AppConfig | null = null;
@@ -24,6 +25,7 @@ export function getConfig(): AppConfig {
 
   let supabaseUrl: string | undefined;
   let supabaseAnonKey: string | undefined;
+  let lineLiffId: string | undefined;
 
   // 1. Try Vite's environment variables safely
   try {
@@ -31,6 +33,7 @@ export function getConfig(): AppConfig {
     if (import.meta && import.meta.env) {
       supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      lineLiffId = import.meta.env.VITE_LINE_LIFF_ID;
     }
   } catch (e) {
     // Ignore errors if import.meta is not available
@@ -39,9 +42,10 @@ export function getConfig(): AppConfig {
 
   // 2. Fallback to window.__APP_ENV__ (Dev environment)
   // We check if 'window' matches the expected shape to avoid errors in non-browser envs (though unlikely here)
-  if ((!supabaseUrl || !supabaseAnonKey) && typeof window !== 'undefined' && window.__APP_ENV__) {
+  if ((!supabaseUrl || !supabaseAnonKey || !lineLiffId) && typeof window !== 'undefined' && window.__APP_ENV__) {
     supabaseUrl = supabaseUrl || window.__APP_ENV__.SUPABASE_URL;
     supabaseAnonKey = supabaseAnonKey || window.__APP_ENV__.SUPABASE_ANON_KEY;
+    lineLiffId = lineLiffId || window.__APP_ENV__.LINE_LIFF_ID;
   }
 
   if (!supabaseUrl || !supabaseAnonKey) {
@@ -49,10 +53,18 @@ export function getConfig(): AppConfig {
     throw new Error('Application is not configured correctly. Missing Supabase credentials.');
   }
 
+  // LINE_LIFF_ID is intentionally optional: the app must keep working for all
+  // non-LIFF traffic even if it's never configured. liffService handles the
+  // empty-string case itself (no-op, console error) rather than crashing here.
+  if (!lineLiffId) {
+    console.warn('VITE_LINE_LIFF_ID is not set — the LINE LIFF flow will be unavailable.');
+  }
+
   memoizedConfig = {
     SUPABASE_URL: supabaseUrl,
     SUPABASE_ANON_KEY: supabaseAnonKey,
+    LINE_LIFF_ID: lineLiffId || '',
   };
-  
+
   return memoizedConfig;
 }

@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@line/liff": "^2.29.1",
     "@supabase/supabase-js": "^2.81.1",
     "deno.ns": "^0.8.0",
     "exceljs": "^4.4.0",
