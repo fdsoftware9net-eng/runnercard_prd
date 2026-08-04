@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { findRunnerByDetails, getWalletConfig, logUserActivity } from '../services/supabaseService';
 import { WalletConfig } from '../types';
 import { hashNationalId, hashSearchInput } from '../utils/hashing';
-import { isLiffQueryFlag, initLiff, ensureLoggedIn } from '../services/liffService';
+import { prepareLineSession } from '../services/liffService';
 import Input from './Input';
 import Button from './Button';
 import LoadingSpinner from './LoadingSpinner';
@@ -49,14 +49,7 @@ const RunnerLookupPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [config, setConfig] = useState<Partial<WalletConfig>>({});
     const navigate = useNavigate();
-    const [searchParams] = useSearchParams();
     const isSubmittingRef = useRef(false); // Guard to prevent double submission
-
-    // Only true when reached through the dedicated LIFF entry point (?src=liff),
-    // never for normal web traffic — everything below is a no-op otherwise.
-    const isLiffContext = isLiffQueryFlag(searchParams);
-    const [liffReady, setLiffReady] = useState(!isLiffContext);
-    const [liffInitError, setLiffInitError] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchPageConfig = async () => {
@@ -71,25 +64,14 @@ const RunnerLookupPage: React.FC = () => {
         fetchPageConfig();
     }, []);
 
+    // Start the LINE session as early as possible, on every visit. Inside the
+    // LINE app this logs the runner in and captures their userId so it is ready
+    // by the time they search; in an ordinary browser it resolves false and
+    // changes nothing. Deliberately not awaited here — the form must render
+    // immediately for the (majority) non-LINE visitors.
     useEffect(() => {
-        if (!isLiffContext) return;
-
-        const setupLiff = async () => {
-            try {
-                await initLiff();
-                await ensureLoggedIn();
-                // If not already logged in, ensureLoggedIn() triggers a full
-                // redirect to LINE's login page — execution stops here for
-                // this page load. If we reach this line, the user was already
-                // logged in, so we can let them proceed immediately.
-                setLiffReady(true);
-            } catch (err: any) {
-                console.error('LIFF initialization failed:', err);
-                setLiffInitError(err?.message || 'Failed to initialize LINE LIFF.');
-            }
-        };
-        setupLiff();
-    }, [isLiffContext]);
+        prepareLineSession();
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -173,16 +155,23 @@ const RunnerLookupPage: React.FC = () => {
                         color: '#1f2937',
                         confirmButtonColor: '#1f2937',
                     });
-                } else if (isLiffContext) {
-                    // LIFF flow: flag the bib pass page to auto-run the
-                    // register+send pipeline instead of showing manual controls.
-                    // Everything the pipeline needs (bib, id_card_hash) comes
-                    // from the runner record it loads by access_key, so nothing
-                    // sensitive has to be carried across the navigation.
-                    navigate(`/bibpass/${result.data.access_key}?autoSend=1`);
                 } else {
-                    // On success, navigate to the bib pass page and pass a state to bypass verification
-                    navigate(`/bibpass/${result.data.access_key}`);
+                    // Decide here, at search time, whether this runner is in the
+                    // LINE app. prepareLineSession() was kicked off on mount, so
+                    // this normally resolves instantly; awaiting it just covers
+                    // the case where they searched before it finished.
+                    const isInLineApp = await prepareLineSession();
+
+                    if (isInLineApp) {
+                        // Tell the bib pass page to auto-run the register+send
+                        // pipeline. Everything it needs (bib, id_card_hash) comes
+                        // from the runner record it loads by access_key, so nothing
+                        // sensitive has to be carried across the navigation.
+                        navigate(`/bibpass/${result.data.access_key}?autoSend=1`);
+                    } else {
+                        // Normal browser: unchanged behaviour.
+                        navigate(`/bibpass/${result.data.access_key}`);
+                    }
                 }
             } else if (result.error) {
                 setError(result.error);
@@ -201,21 +190,6 @@ const RunnerLookupPage: React.FC = () => {
 
     if (configLoading) {
         return <LoadingSpinner message="Loading..." />;
-    }
-
-    if (isLiffContext && liffInitError) {
-        return (
-            <div className="flex justify-center items-center min-h-screen p-4">
-                <div className="bg-red-900 text-red-100 p-6 rounded-lg shadow-md max-w-md text-center">
-                    <h2 className="text-2xl font-bold mb-4">LINE Login Error</h2>
-                    <p>{liffInitError}</p>
-                </div>
-            </div>
-        );
-    }
-
-    if (isLiffContext && !liffReady) {
-        return <LoadingSpinner message="กำลังเข้าสู่ระบบ LINE..." />;
     }
 
     return (

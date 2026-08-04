@@ -643,8 +643,8 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         setLiffPipelineStep('verifying');
         const ready = await isLiffReady();
         if (!ready) {
-          // Not a valid LIFF session (e.g. this URL was opened cold, without
-          // going through /lookup?src=liff first) — fall back silently to the
+          // Not in the LINE app, or no usable login session (e.g. this URL was
+          // opened cold in an ordinary browser) — fall back silently to the
           // manual card view instead of showing an error.
           setLiffFallbackToManual(true);
           return;
