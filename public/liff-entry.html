@@ -9,11 +9,19 @@
     // LINE's LIFF Endpoint URL setting rejects any URL containing "#", but this
     // app's router is hash-based (HashRouter) so existing distributed links
     // (admin share links, emails already sent to runners) all use "/#/...".
-    // This static page is registered as the LIFF Endpoint URL instead, and just
-    // forwards straight into the SPA's hash router — preserving "?src=liff" and
-    // any extra params LINE appends (e.g. liff.state) so RunnerLookupPage can
-    // still detect the LIFF context after the bounce.
-    window.location.replace('/#/lookup' + window.location.search);
+    // This static page is registered as the LIFF Endpoint URL instead, and
+    // forwards into the SPA's hash router.
+    //
+    // The query string is kept in BOTH places on purpose:
+    //   - before the "#" so it stays in location.search, which is the only
+    //     place the LIFF SDK looks for its own parameters (liff.state, and the
+    //     code/state pair handed back after login). Moving them into the hash
+    //     makes liff.init() unable to establish the session, so it falls
+    //     through to liff.login() and the login callback never completes.
+    //   - after the "#" so react-router's useSearchParams() (which reads the
+    //     query inside the hash) can still see src=liff.
+    var search = window.location.search;
+    window.location.replace('/' + search + '#/lookup' + search);
   </script>
 </body>
 </html>

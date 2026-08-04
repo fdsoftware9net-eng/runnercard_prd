@@ -29,7 +29,15 @@ let cachedLineUserId: string | null = null;
  * (the LIFF app's registered Endpoint URL), never for organic web traffic.
  */
 export const isLiffQueryFlag = (searchParams: URLSearchParams): boolean => {
-  return searchParams.get(LIFF_QUERY_PARAM) === LIFF_QUERY_VALUE;
+  if (searchParams.get(LIFF_QUERY_PARAM) === LIFF_QUERY_VALUE) return true;
+  // The bounce page also leaves the flag in the real query string (see
+  // public/liff-entry.html). Check there too, so the LIFF context survives
+  // liff.init() rewriting the URL to strip its own params.
+  try {
+    return new URLSearchParams(window.location.search).get(LIFF_QUERY_PARAM) === LIFF_QUERY_VALUE;
+  } catch {
+    return false;
+  }
 };
 
 /**
