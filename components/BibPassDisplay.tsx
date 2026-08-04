@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { useParams, useLocation, useSearchParams } from 'react-router-dom';
 import { getRunnerByAccessKey, updateRunner as updateRunnerService, getWalletConfig, logUserActivity, updateWalletPass, checkWalletPass } from '../services/supabaseService';
 import { getSession } from '../services/authService';
 import { Runner, WebPassConfig } from '../types';
 import { generateQrCodeDataUrl } from '../services/bibPassService';
+import { isLiffReady, getLineUserId, closeLiffWindow, isDevLiffMock, shouldMockPipelineApi, getLiffStopAfterStep } from '../services/liffService';
 import Input from './Input';
 import Button from './Button';
 import LoadingSpinner from './LoadingSpinner';
+import LiffSendingOverlay, { LiffPipelineStep } from './LiffSendingOverlay';
 import { getConfig } from '../constants';
 import BibPassTemplate from './BibPassTemplate';
 import { DEFAULT_CONFIG } from '../defaults';
@@ -15,6 +17,110 @@ import html2canvas from 'html2canvas';
 
 const GOOGLE_WALLET_EDGE_FUNCTION_URL = '/functions/v1/generate-google-wallet-pass';
 const APPLE_WALLET_EDGE_FUNCTION_URL = '/functions/v1/generate-apple-wallet-pass';
+const LIFF_UPLOAD_IMAGE_EDGE_FUNCTION_URL = '/functions/v1/liff-upload-bibpass-image';
+const LIFF_REGISTER_EDGE_FUNCTION_URL = '/functions/v1/liff-register-runner';
+const LIFF_SEND_IMAGE_EDGE_FUNCTION_URL = '/functions/v1/liff-send-bibpass-image';
+
+// Small artificial delay so each step is actually visible in the overlay
+// during dev-mock runs, instead of flashing past instantly.
+const devMockDelay = () => new Promise((resolve) => setTimeout(resolve, 600));
+
+// requestAnimationFrame never fires while the page is hidden (screen locked,
+// user switched apps, backgrounded webview). The capture code waits on frames
+// to let layout settle, so without a timer fallback the whole auto-send
+// pipeline hangs forever with no error and no way out. Resolve on whichever
+// comes first.
+const nextFrame = (): Promise<void> =>
+  new Promise((resolve) => {
+    let settled = false;
+    const done = () => { if (!settled) { settled = true; resolve(); } };
+    requestAnimationFrame(done);
+    setTimeout(done, 100);
+  });
+
+// The Edge Functions have their own timeouts for the outbound third-party call,
+// but without a timeout on the browser -> Edge Function request itself, an
+// unreachable/hanging function leaves the runner stuck on the overlay spinner
+// forever with no error, no retry and no way out. Always bound these calls.
+const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: number): Promise<Response> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error('การเชื่อมต่อใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const uploadLiffBibpassImage = async (blob: Blob, bib: string): Promise<string> => {
+  if (shouldMockPipelineApi()) {
+    console.warn('[BibPassDisplay] DEV MOCK: skipping real upload, returning a local blob URL.', { bib, size: blob.size });
+    await devMockDelay();
+    return URL.createObjectURL(blob);
+  }
+
+  const config = getConfig();
+  const formData = new FormData();
+  formData.append('file', blob, `bibpass_${bib}.png`);
+  formData.append('bib', bib);
+
+  const response = await fetchWithTimeout(`${config.SUPABASE_URL}${LIFF_UPLOAD_IMAGE_EDGE_FUNCTION_URL}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${config.SUPABASE_ANON_KEY}` },
+    body: formData,
+  }, 30000); // larger budget: the PNG can be a few MB on a mobile connection
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Failed to upload image.');
+  return data.signedUrl;
+};
+
+const registerLiffRunner = async (payload: { bib: string; idCardHash: string; lineUserId: string }): Promise<void> => {
+  const config = getConfig();
+  // event_id / lineoa_user_id are fixed server-side in the Edge Function — only
+  // the runner-specific values are sent from here.
+  if (shouldMockPipelineApi()) {
+    console.warn('[BibPassDisplay] DEV MOCK: skipping real event.runner.register.save call.', payload);
+    await devMockDelay();
+    return;
+  }
+  console.warn('[BibPassDisplay] REAL CALL: event.runner.register.save', payload);
+
+  const response = await fetchWithTimeout(`${config.SUPABASE_URL}${LIFF_REGISTER_EDGE_FUNCTION_URL}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.SUPABASE_ANON_KEY}` },
+    body: JSON.stringify(payload),
+  }, 20000);
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Failed to register runner.');
+};
+
+const sendLiffBibpassImage = async (payload: { lineUserId: string; imageUrl: string }): Promise<void> => {
+  const config = getConfig();
+
+  // company_id / location_id / lineoa_user_id are fixed server-side in the Edge
+  // Function — only the runner-specific values are sent from here.
+  if (shouldMockPipelineApi()) {
+    console.warn('[BibPassDisplay] DEV MOCK: skipping real line.user.chat.image call.', payload);
+    await devMockDelay();
+    return;
+  }
+  console.warn('[BibPassDisplay] REAL CALL: line.user.chat.image', payload);
+  const response = await fetchWithTimeout(`${config.SUPABASE_URL}${LIFF_SEND_IMAGE_EDGE_FUNCTION_URL}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.SUPABASE_ANON_KEY}` },
+    body: JSON.stringify(payload),
+  }, 20000);
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || 'Failed to send image.');
+};
 
 const MOTIVATIONAL_MESSAGES = [
   'เป็นกำลังใจให้เราด้วยนะกั้บ',
@@ -54,6 +160,18 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
   const [walletError, setWalletError] = useState<string | null>(null);
   const [isSavingImage, setIsSavingImage] = useState(false);
 
+  // --- LIFF auto-send pipeline state ---
+  const [searchParams] = useSearchParams();
+  const autoSend = searchParams.get('autoSend') === '1';
+  const [liffPipelineStep, setLiffPipelineStep] = useState<LiffPipelineStep | 'idle'>('idle');
+  const [liffPipelineError, setLiffPipelineError] = useState<string | null>(null);
+  const [liffFallbackToManual, setLiffFallbackToManual] = useState(false);
+  const liffPipelineStartedRef = useRef(false);
+  const liffLineUserIdRef = useRef<string | null>(null);
+  const liffImageUrlsRef = useRef<string[] | null>(null);
+  const liffRegisteredRef = useRef(false);
+  const liffSentCountRef = useRef(0);
+
   // Card 2 state
   const [webConfig2, setWebConfig2] = useState<WebPassConfig | null>(null);
   const [randomMessage] = useState<string>(
@@ -66,6 +184,13 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
   const templateContainerRef2 = useRef<HTMLDivElement | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isCapturing2, setIsCapturing2] = useState(false);
+  // Set true once BibPassTemplate has finished its own field-position/font-size
+  // measurement pass (see its onLayoutReady prop). Used to make sure the LIFF
+  // auto-send pipeline doesn't try to capture the card before it's visually
+  // settled — unlike the manual "Save as Image" button, the pipeline can run
+  // within a fraction of a second of the card first mounting.
+  const card1LayoutReadyRef = useRef(false);
+  const card2LayoutReadyRef = useRef(false);
 
   // Mobile scale refs/state
   const cardColumnRef = useRef<HTMLDivElement>(null);
@@ -240,7 +365,6 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     };
   }, [runner, webConfig2]);
 
-
   const handleVerification = useCallback(() => {
     if (!runner) return;
 
@@ -263,6 +387,118 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       setVerificationError('Invalid ID Card Hash. Please try again.');
     }
   }, [runner, idCardHashInput]);
+
+  // Shared capture logic (html2canvas), used by both the manual "Save as Image"
+  // button and the LIFF auto-send pipeline. Not rewritten — extracted as-is
+  // from the original handleSaveAsImage implementation.
+  const captureCardBlobs = useCallback(async (): Promise<{ blob1: Blob; blob2: Blob | null }> => {
+    if (!templateContainerRef.current || !runner) {
+      throw new Error('Card not ready to capture.');
+    }
+
+    const hasCard2 = !!(runner.first_half?.toLowerCase() === 'yes' && webConfig2 && templateContainerRef2.current);
+
+    const removeScaleForCapture = () => {
+      if (card1ScaleWrapperRef.current) card1ScaleWrapperRef.current.style.transform = 'none';
+      if (card1OuterRef.current) { card1OuterRef.current.style.height = 'auto'; card1OuterRef.current.style.overflow = 'visible'; }
+      if (hasCard2 && card2ScaleWrapperRef.current) card2ScaleWrapperRef.current.style.transform = 'none';
+      if (hasCard2 && card2OuterRef.current) { card2OuterRef.current.style.height = 'auto'; card2OuterRef.current.style.overflow = 'visible'; }
+    };
+
+    const restoreScaleAfterCapture = () => {
+      if (card1ScaleWrapperRef.current) card1ScaleWrapperRef.current.style.transform = `scale(${cardScale})`;
+      if (card1OuterRef.current) { card1OuterRef.current.style.height = card1Height > 0 ? `${Math.ceil(card1Height * cardScale)}px` : 'auto'; card1OuterRef.current.style.overflow = 'hidden'; }
+      if (card2ScaleWrapperRef.current) card2ScaleWrapperRef.current.style.transform = `scale(${cardScale})`;
+      if (card2OuterRef.current) { card2OuterRef.current.style.height = card2Height > 0 ? `${Math.ceil(card2Height * cardScale)}px` : 'auto'; card2OuterRef.current.style.overflow = 'hidden'; }
+    };
+
+    // canvas.toBlob() can silently resolve with null (no error thrown) if any
+    // <img> inside the container is still mid-load when html2canvas draws it
+    // (e.g. the card's background image, over the network, on a fresh mount).
+    // Wait for every image to actually finish before capturing — this is the
+    // direct fix for "Create Blob Failed" happening only on the fast
+    // auto-send path and never on the manual button (where the page has
+    // usually been sitting loaded for a while by the time the user clicks).
+    const waitForImagesToLoad = async (container: HTMLElement): Promise<void> => {
+      const images = Array.from(container.querySelectorAll('img'));
+      await Promise.all(images.map((img) => {
+        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+        return new Promise<void>((resolve) => {
+          img.addEventListener('load', () => resolve(), { once: true });
+          img.addEventListener('error', () => resolve(), { once: true });
+          setTimeout(resolve, 4000); // safety fallback so one stuck image can't hang the pipeline
+        });
+      }));
+    };
+
+    const captureContainer = async (container: HTMLDivElement): Promise<Blob> => {
+      const actualWidth = container.offsetWidth;
+      const actualHeight = container.offsetHeight;
+
+      await nextFrame();
+      await nextFrame();
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      await waitForImagesToLoad(container);
+
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        backgroundColor: null,
+        useCORS: true,
+        logging: false,
+        width: actualWidth,
+        height: actualHeight,
+        allowTaint: false
+      });
+
+      const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('Create Blob Failed');
+      return blob;
+    };
+
+    // Wait for BibPassTemplate's own layout-ready signal (field position/font
+    // size measurement pass) before doing anything else. Cheap no-op once
+    // already ready (e.g. for the manual "Save as Image" button, which is
+    // always clicked well after this has long since fired).
+    const waitForLayoutReady = async (timeoutMs = 4000) => {
+      const start = Date.now();
+      while (!card1LayoutReadyRef.current || (hasCard2 && !card2LayoutReadyRef.current)) {
+        if (Date.now() - start > timeoutMs) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    };
+
+    try {
+      // 0. Make sure the template(s) have finished measuring before we touch anything
+      await waitForLayoutReady();
+
+      // 1. Remove scale transforms so html2canvas captures at natural 450px layout
+      removeScaleForCapture();
+
+      // 2. Wait for layout to settle after transform removal
+      await nextFrame();
+      await nextFrame();
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // 3. Trigger pixel position recalculation in BibPassTemplate
+      setIsCapturing(true);
+      if (hasCard2) setIsCapturing2(true);
+
+      // 4. Capture both cards (captureContainer waits 300ms internally for re-render)
+      const blob1 = await captureContainer(templateContainerRef.current!);
+      let blob2: Blob | null = null;
+      if (hasCard2) {
+        blob2 = await captureContainer(templateContainerRef2.current!);
+      }
+
+      return { blob1, blob2 };
+    } finally {
+      // 5. Turn off capturing and restore scale transforms, whether we succeeded or not
+      setIsCapturing(false);
+      setIsCapturing2(false);
+      restoreScaleAfterCapture();
+    }
+  }, [runner, webConfig2, cardScale, card1Height, card2Height]);
 
   const handleSaveAsImage = useCallback(async () => {
     // 0. ตรวจสอบความพร้อม
@@ -327,49 +563,6 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
     const isMobile = isIOS || isAndroid;
 
-    const hasCard2 = runner.first_half?.toLowerCase() === 'yes' && webConfig2 && templateContainerRef2.current;
-
-    const removeScaleForCapture = () => {
-      if (card1ScaleWrapperRef.current) card1ScaleWrapperRef.current.style.transform = 'none';
-      if (card1OuterRef.current) { card1OuterRef.current.style.height = 'auto'; card1OuterRef.current.style.overflow = 'visible'; }
-      if (hasCard2 && card2ScaleWrapperRef.current) card2ScaleWrapperRef.current.style.transform = 'none';
-      if (hasCard2 && card2OuterRef.current) { card2OuterRef.current.style.height = 'auto'; card2OuterRef.current.style.overflow = 'visible'; }
-    };
-
-    const restoreScaleAfterCapture = () => {
-      if (card1ScaleWrapperRef.current) card1ScaleWrapperRef.current.style.transform = `scale(${cardScale})`;
-      if (card1OuterRef.current) { card1OuterRef.current.style.height = card1Height > 0 ? `${Math.ceil(card1Height * cardScale)}px` : 'auto'; card1OuterRef.current.style.overflow = 'hidden'; }
-      if (card2ScaleWrapperRef.current) card2ScaleWrapperRef.current.style.transform = `scale(${cardScale})`;
-      if (card2OuterRef.current) { card2OuterRef.current.style.height = card2Height > 0 ? `${Math.ceil(card2Height * cardScale)}px` : 'auto'; card2OuterRef.current.style.overflow = 'hidden'; }
-    };
-
-    const captureContainer = async (container: HTMLDivElement): Promise<Blob> => {
-      const actualWidth = container.offsetWidth;
-      const actualHeight = container.offsetHeight;
-
-      await new Promise(resolve => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            setTimeout(resolve, 300);
-          });
-        });
-      });
-
-      const canvas = await html2canvas(container, {
-        scale: 2,
-        backgroundColor: null,
-        useCORS: true,
-        logging: false,
-        width: actualWidth,
-        height: actualHeight,
-        allowTaint: false
-      });
-
-      const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
-      if (!blob) throw new Error('Create Blob Failed');
-      return blob;
-    };
-
     const performDownload = (blob: Blob, fileName: string) => {
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -382,27 +575,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     };
 
     try {
-      // 1. Remove scale transforms so html2canvas captures at natural 450px layout
-      removeScaleForCapture();
-
-      // 2. Wait for layout to settle after transform removal
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100))));
-
-      // 3. Trigger pixel position recalculation in BibPassTemplate
-      setIsCapturing(true);
-      if (hasCard2) setIsCapturing2(true);
-
-      // 4. Capture both cards (captureContainer waits 300ms internally for re-render)
-      const blob1 = await captureContainer(templateContainerRef.current!);
-      let blob2: Blob | null = null;
-      if (hasCard2) {
-        blob2 = await captureContainer(templateContainerRef2.current!);
-      }
-
-      // 5. Turn off capturing and restore scale transforms
-      setIsCapturing(false);
-      setIsCapturing2(false);
-      restoreScaleAfterCapture();
+      const { blob1, blob2 } = await captureCardBlobs();
 
       const fileName1 = `RunnerCard1_${runner.bib}.png`;
       const fileName2 = `RunnerCard2_${runner.bib}.png`;
@@ -444,9 +617,6 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     } catch (err) {
       console.error("Failed to generate image:", err);
       setWalletError("Failed to save image. Please try again.");
-      setIsCapturing(false);
-      setIsCapturing2(false);
-      restoreScaleAfterCapture();
 
       if (runner?.id) {
         logUserActivity({
@@ -461,7 +631,108 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     } finally {
       setIsSavingImage(false);
     }
-  }, [runner, webConfig2]);
+  }, [runner, captureCardBlobs]);
+
+  const runLiffAutoSendPipeline = useCallback(async () => {
+    if (!runner) return;
+    setLiffPipelineError(null);
+
+    try {
+      // Step 1: obtain the LINE userId (skip if we already have it from a previous attempt)
+      if (!liffLineUserIdRef.current) {
+        setLiffPipelineStep('verifying');
+        const ready = await isLiffReady();
+        if (!ready) {
+          // Not a valid LIFF session (e.g. this URL was opened cold, without
+          // going through /lookup?src=liff first) — fall back silently to the
+          // manual card view instead of showing an error.
+          setLiffFallbackToManual(true);
+          return;
+        }
+        liffLineUserIdRef.current = await getLineUserId();
+      }
+      const lineUserId = liffLineUserIdRef.current;
+
+      // Step 2+3: generate and upload the card image(s) (skip if already done)
+      if (!liffImageUrlsRef.current) {
+        setLiffPipelineStep('generating');
+        const { blob1, blob2 } = await captureCardBlobs();
+
+        setLiffPipelineStep('uploading');
+        const urls: string[] = [await uploadLiffBibpassImage(blob1, runner.bib)];
+        if (blob2) {
+          urls.push(await uploadLiffBibpassImage(blob2, runner.bib));
+        }
+        liffImageUrlsRef.current = urls;
+      }
+      const imageUrls = liffImageUrlsRef.current;
+
+      const stopAfter = getLiffStopAfterStep();
+      if (stopAfter === 'uploading') {
+        console.warn('[BibPassDisplay] DEV STOP: VITE_LIFF_STOP_AFTER=uploading — halting before register.', { imageUrls });
+        setLiffPipelineStep('success');
+        return;
+      }
+
+      // Step 4: register the runner with the third party (skip if already done)
+      if (!liffRegisteredRef.current) {
+        setLiffPipelineStep('registering');
+        await registerLiffRunner({ bib: runner.bib, idCardHash: runner.id_card_hash || '', lineUserId });
+        liffRegisteredRef.current = true;
+        logUserActivity({
+          activity_type: 'liff_register',
+          runner_id: runner.id || null,
+          success: true,
+        }).catch((err) => console.warn('Failed to log liff_register:', err));
+      }
+
+      if (stopAfter === 'registering') {
+        console.warn('[BibPassDisplay] DEV STOP: VITE_LIFF_STOP_AFTER=registering — halting before sending image to LINE.', { imageUrls });
+        setLiffPipelineStep('success');
+        return;
+      }
+
+      // Step 5: send each card image into LINE, one call per image, resuming
+      // from wherever a previous attempt left off.
+      setLiffPipelineStep('sending');
+      for (let i = liffSentCountRef.current; i < imageUrls.length; i++) {
+        await sendLiffBibpassImage({ lineUserId, imageUrl: imageUrls[i] });
+        liffSentCountRef.current = i + 1;
+      }
+      logUserActivity({
+        activity_type: 'liff_send_image',
+        runner_id: runner.id || null,
+        success: true,
+        metadata: { image_count: imageUrls.length },
+      }).catch((err) => console.warn('Failed to log liff_send_image:', err));
+
+      setLiffPipelineStep('success');
+      setTimeout(() => closeLiffWindow(), 1000);
+    } catch (err: any) {
+      console.error('LIFF auto-send pipeline failed:', err);
+      setLiffPipelineStep('error');
+      setLiffPipelineError(err?.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง');
+
+      if (runner?.id) {
+        logUserActivity({
+          activity_type: liffRegisteredRef.current ? 'liff_send_image' : 'liff_register',
+          runner_id: runner.id,
+          success: false,
+          error_message: err?.message || 'Unknown error',
+        }).catch((logErr) => console.warn('Failed to log liff pipeline failure:', logErr));
+      }
+    }
+  }, [runner, captureCardBlobs]);
+
+  // Kick off the LIFF auto-send pipeline once the runner has loaded. Runs at
+  // most once automatically — retries after a failure are user-triggered via
+  // the overlay's "Retry" button, which calls runLiffAutoSendPipeline directly.
+  useEffect(() => {
+    if (!autoSend || !runner || liffFallbackToManual) return;
+    if (liffPipelineStartedRef.current) return;
+    liffPipelineStartedRef.current = true;
+    runLiffAutoSendPipeline();
+  }, [autoSend, runner, liffFallbackToManual, runLiffAutoSendPipeline]);
 
   const handleAddPassportToWallet = useCallback(async (walletType: 'google' | 'apple') => {
     setWalletError(null);
@@ -789,7 +1060,10 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     );
   }
 
-  const shouldShowPass = isVerified || isAdmin;
+  // The LIFF auto-send flow already proved identity on the lookup page, so it
+  // always shows the card view (needed for html2canvas to capture it) instead
+  // of the manual verification form, regardless of isVerified/isAdmin state.
+  const shouldShowPass = isVerified || isAdmin || autoSend;
 
   if (!shouldShowPass) {
     return (
@@ -833,6 +1107,21 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 flex flex-col items-center overflow-x-hidden">
+      {autoSend && !liffFallbackToManual && liffPipelineStep !== 'idle' && (
+        <LiffSendingOverlay
+          step={liffPipelineStep}
+          errorMessage={liffPipelineError}
+          onRetry={runLiffAutoSendPipeline}
+          onViewInBrowser={() => setLiffFallbackToManual(true)}
+          devNotice={
+            !isDevLiffMock()
+              ? null
+              : shouldMockPipelineApi()
+                ? 'DEV MOCK — ไม่ได้เรียก API จริง'
+                : `DEV — ข้าม LINE login, เรียก API จริง${getLiffStopAfterStep() ? ` (หยุดหลัง ${getLiffStopAfterStep()})` : ''}`
+          }
+        />
+      )}
       <h1 className="text-3xl font-extrabold mb-8 text-blue-400">BANGSEAN21-2026</h1>
 
       <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -858,6 +1147,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                   qrCodeUrl={bibPassQrCodeUrl}
                   containerRefCallback={(ref) => { templateContainerRef.current = ref; }}
                   isCapturing={isCapturing}
+                  onLayoutReady={() => { card1LayoutReadyRef.current = true; }}
                 />
               </div>
             </div>
@@ -883,6 +1173,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                   qrCodeUrl={bibPassQrCodeUrl}
                   containerRefCallback={(ref) => { templateContainerRef2.current = ref; }}
                   isCapturing={isCapturing2}
+                  onLayoutReady={() => { card2LayoutReadyRef.current = true; }}
                 />
               </div>
             </div>

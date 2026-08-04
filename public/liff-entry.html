@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <title>Loading...</title>
+</head>
+<body>
+  <script>
+    // LINE's LIFF Endpoint URL setting rejects any URL containing "#", but this
+    // app's router is hash-based (HashRouter) so existing distributed links
+    // (admin share links, emails already sent to runners) all use "/#/...".
+    // This static page is registered as the LIFF Endpoint URL instead, and just
+    // forwards straight into the SPA's hash router — preserving "?src=liff" and
+    // any extra params LINE appends (e.g. liff.state) so RunnerLookupPage can
+    // still detect the LIFF context after the bounce.
+    window.location.replace('/#/lookup' + window.location.search);
+  </script>
+</body>
+</html>

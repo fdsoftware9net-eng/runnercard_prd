@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 .env
 .vercel
+
+# Local tooling state
+.claude
+supabase/.temp
