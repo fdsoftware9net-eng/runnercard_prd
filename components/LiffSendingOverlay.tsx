@@ -20,12 +20,17 @@ interface LiffSendingOverlayProps {
   devNotice?: string | null;
 }
 
+// Describe what the runner is waiting for, not the internal step. In
+// particular the register call must not be worded as "ลงทะเบียน": runners see
+// this every time they look themselves up, and that word reads as signing up
+// for the race again. What it actually does, from their point of view, is link
+// their LINE account so the pass can be delivered.
 const STEP_MESSAGES: Record<Exclude<LiffPipelineStep, 'error' | 'success'>, string> = {
   verifying: 'กำลังตรวจสอบข้อมูล...',
-  generating: 'กำลังสร้างบัตร...',
-  uploading: 'กำลังอัปโหลดรูปภาพ...',
-  registering: 'กำลังลงทะเบียน...',
-  sending: 'กำลังส่งเข้า LINE...',
+  generating: 'กำลังสร้างบัตรของคุณ...',
+  uploading: 'กำลังเตรียมรูปบัตร...',
+  registering: 'กำลังเชื่อมต่อกับ LINE ของคุณ...',
+  sending: 'กำลังส่งบัตรเข้า LINE...',
 };
 
 const LiffSendingOverlay: React.FC<LiffSendingOverlayProps> = ({
@@ -51,7 +56,8 @@ const LiffSendingOverlay: React.FC<LiffSendingOverlayProps> = ({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <p className="text-lg font-semibold text-white">ส่งสำเร็จ ✓</p>
+            <p className="text-lg font-semibold text-white">ส่งบัตรเข้า LINE แล้ว</p>
+            <p className="mt-1 text-sm text-gray-300">ดูได้ในแชทของคุณ</p>
           </>
         )}
 
