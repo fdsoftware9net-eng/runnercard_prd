@@ -69,17 +69,14 @@ const LINE_TARGET_IMAGE_BYTES = 900 * 1024;
  *
  * The full-quality PNG is fine for the manual "Save as Image" download but runs
  * to several MB on template-heavy cards, which LINE silently refuses to open.
- * Re-encode as JPEG (far smaller for a photographic card background), stepping
- * quality and then dimensions down until it fits. JPEG has no alpha channel, so
- * the canvas is flattened onto white first — without that, transparent areas
- * come out black.
+ *
+ * The card is rendered on a transparent background, so it has to stay PNG —
+ * JPEG has no alpha channel and would replace the transparency with a solid
+ * fill. That leaves resolution as the only lever, so step the dimensions down
+ * (highest quality resampling available) until the file fits.
  */
-const toLineSafeImage = async (
-  blob: Blob,
-): Promise<{ blob: Blob; contentType: string; ext: string }> => {
-  if (blob.size <= LINE_TARGET_IMAGE_BYTES) {
-    return { blob, contentType: blob.type || 'image/png', ext: 'png' };
-  }
+const toLineSafeImage = async (blob: Blob): Promise<Blob> => {
+  if (blob.size <= LINE_TARGET_IMAGE_BYTES) return blob;
 
   const bitmapUrl = URL.createObjectURL(blob);
   try {
@@ -90,38 +87,36 @@ const toLineSafeImage = async (
       el.src = bitmapUrl;
     });
 
-    const encode = (scale: number, quality: number): Promise<Blob | null> => {
+    const encodeAtScale = (scale: number): Promise<Blob | null> => {
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
       canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
       const ctx = canvas.getContext('2d');
       if (!ctx) return Promise.resolve(null);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // No background fill: the canvas starts transparent and must stay that way.
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+      return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
     };
 
-    // Quality first (keeps the card sharp), dimensions only if that isn't enough.
-    const attempts: Array<[number, number]> = [
-      [1, 0.92], [1, 0.85], [1, 0.75],
-      [0.75, 0.85], [0.75, 0.75],
-      [0.5, 0.8], [0.5, 0.7],
-    ];
+    // The capture runs at scale 2, so 0.5 is still the card's natural 1x size.
+    const scales = [0.85, 0.75, 0.65, 0.55, 0.5, 0.4, 0.35];
 
     let smallest: Blob | null = null;
-    for (const [scale, quality] of attempts) {
-      const candidate = await encode(scale, quality);
+    for (const scale of scales) {
+      const candidate = await encodeAtScale(scale);
       if (!candidate) continue;
       if (!smallest || candidate.size < smallest.size) smallest = candidate;
       if (candidate.size <= LINE_TARGET_IMAGE_BYTES) {
-        console.info(`[BibPassDisplay] Compressed card for LINE: ${blob.size} -> ${candidate.size} bytes (scale ${scale}, quality ${quality}).`);
-        return { blob: candidate, contentType: 'image/jpeg', ext: 'jpg' };
+        console.info(`[BibPassDisplay] Resized card for LINE: ${blob.size} -> ${candidate.size} bytes (scale ${scale}, ${Math.round(img.naturalWidth * scale)}px wide).`);
+        return candidate;
       }
     }
 
     if (smallest && smallest.size <= LINE_MAX_IMAGE_BYTES) {
-      return { blob: smallest, contentType: 'image/jpeg', ext: 'jpg' };
+      console.warn(`[BibPassDisplay] Card only just fits LINE's limit: ${smallest.size} bytes.`);
+      return smallest;
     }
     throw new Error('ไม่สามารถย่อขนาดรูปบัตรให้เล็กพอสำหรับ LINE ได้');
   } finally {
@@ -130,17 +125,17 @@ const toLineSafeImage = async (
 };
 
 const uploadLiffBibpassImage = async (blob: Blob, bib: string): Promise<string> => {
-  const safe = await toLineSafeImage(blob);
+  const safeBlob = await toLineSafeImage(blob);
 
   if (shouldMockPipelineApi()) {
-    console.warn('[BibPassDisplay] DEV MOCK: skipping real upload, returning a local blob URL.', { bib, size: safe.blob.size, type: safe.contentType });
+    console.warn('[BibPassDisplay] DEV MOCK: skipping real upload, returning a local blob URL.', { bib, size: safeBlob.size, type: safeBlob.type });
     await devMockDelay();
-    return URL.createObjectURL(safe.blob);
+    return URL.createObjectURL(safeBlob);
   }
 
   const config = getConfig();
   const formData = new FormData();
-  formData.append('file', safe.blob, `bibpass_${bib}.${safe.ext}`);
+  formData.append('file', safeBlob, `bibpass_${bib}.png`);
   formData.append('bib', bib);
 
   const response = await fetchWithTimeout(`${config.SUPABASE_URL}${LIFF_UPLOAD_IMAGE_EDGE_FUNCTION_URL}`, {

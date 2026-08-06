@@ -14,7 +14,6 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.44.0";
 
 const BUCKET_NAME = 'bibpass-liff-temp';
-const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg'];
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024; // 8MB
 const SIGNED_URL_EXPIRY_SECONDS = 900; // 15 minutes
 
@@ -58,20 +57,17 @@ app.post('*', async (c) => {
       return c.json({ error: `File too large. Max ${MAX_FILE_SIZE_BYTES} bytes.` }, 400);
     }
 
-    // The frontend sends PNG when the card is already small enough, and JPEG
-    // when it had to be compressed to fit under LINE's 1 MB image limit.
-    const contentType = ALLOWED_CONTENT_TYPES.includes(file.type) ? file.type : 'image/png';
-    const ext = contentType === 'image/jpeg' ? 'jpg' : 'png';
-
+    // Always PNG: the bib pass is rendered on a transparent background, so it
+    // cannot be re-encoded to a format without an alpha channel.
     const safeBib = bib.trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-    const path = `liff/${safeBib}_${Date.now()}_${crypto.randomUUID()}.${ext}`;
+    const path = `liff/${safeBib}_${Date.now()}_${crypto.randomUUID()}.png`;
     const fileBytes = new Uint8Array(await file.arrayBuffer());
 
     const supabaseClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const { error: uploadError } = await supabaseClient.storage
       .from(BUCKET_NAME)
-      .upload(path, fileBytes, { contentType, upsert: false });
+      .upload(path, fileBytes, { contentType: 'image/png', upsert: false });
 
     if (uploadError) {
       console.error('Storage upload error:', uploadError);

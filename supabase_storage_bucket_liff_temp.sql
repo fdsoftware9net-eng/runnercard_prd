@@ -11,15 +11,15 @@
 -- Run this in Supabase SQL Editor.
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('bibpass-liff-temp', 'bibpass-liff-temp', false, 8388608, array['image/png', 'image/jpeg'])
+values ('bibpass-liff-temp', 'bibpass-liff-temp', false, 8388608, array['image/png'])
 on conflict (id) do update
-set file_size_limit   = excluded.file_size_limit,
+set file_size_limit    = excluded.file_size_limit,
     allowed_mime_types = excluded.allowed_mime_types,
     public             = excluded.public;
 
--- image/jpeg is required, not optional: cards that would exceed LINE's 1 MB
--- image-message limit as PNG are re-encoded to JPEG by the frontend before
--- upload. A png-only bucket rejects those uploads.
+-- PNG only: the bib pass is rendered on a transparent background, so the
+-- frontend keeps it as PNG and shrinks its dimensions (never converting to a
+-- format without an alpha channel) to stay under LINE's 1 MB image limit.
 --
 -- No storage.objects RLS policies are added intentionally: all reads/writes to
 -- this bucket happen exclusively via the liff-upload-bibpass-image Edge Function
