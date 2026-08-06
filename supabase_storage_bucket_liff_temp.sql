@@ -2,15 +2,25 @@
 -- Create a private Storage bucket for short-lived LIFF bib-pass images
 -- ============================================
 -- Used only by the liff-upload-bibpass-image Edge Function to temporarily
--- host the generated bib pass PNG so the third-party service (yourqr.today)
+-- host the generated bib pass image so the third-party service (yourqr.today)
 -- can fetch it via a signed URL before delivering it into the runner's LINE chat.
+--
+-- Safe to re-run: creates the bucket if missing, and brings an existing bucket
+-- up to date with the current settings.
 --
 -- Run this in Supabase SQL Editor.
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('bibpass-liff-temp', 'bibpass-liff-temp', false, 8388608, array['image/png'])
-on conflict (id) do nothing;
+values ('bibpass-liff-temp', 'bibpass-liff-temp', false, 8388608, array['image/png', 'image/jpeg'])
+on conflict (id) do update
+set file_size_limit   = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types,
+    public             = excluded.public;
 
+-- image/jpeg is required, not optional: cards that would exceed LINE's 1 MB
+-- image-message limit as PNG are re-encoded to JPEG by the frontend before
+-- upload. A png-only bucket rejects those uploads.
+--
 -- No storage.objects RLS policies are added intentionally: all reads/writes to
 -- this bucket happen exclusively via the liff-upload-bibpass-image Edge Function
 -- using the service-role key, which bypasses RLS entirely. This keeps the bucket

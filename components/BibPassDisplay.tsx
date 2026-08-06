@@ -57,23 +57,97 @@ const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs: numbe
   }
 };
 
+// LINE refuses to render an image message whose file is over 1 MB, and the
+// third party reuses our single URL for BOTH originalContentUrl and
+// previewImageUrl — so the stricter preview limit is the one that applies.
+// Aim comfortably under it rather than at the line itself.
+const LINE_MAX_IMAGE_BYTES = 1024 * 1024;
+const LINE_TARGET_IMAGE_BYTES = 900 * 1024;
+
+/**
+ * Returns a copy of the captured card that LINE will actually display.
+ *
+ * The full-quality PNG is fine for the manual "Save as Image" download but runs
+ * to several MB on template-heavy cards, which LINE silently refuses to open.
+ * Re-encode as JPEG (far smaller for a photographic card background), stepping
+ * quality and then dimensions down until it fits. JPEG has no alpha channel, so
+ * the canvas is flattened onto white first — without that, transparent areas
+ * come out black.
+ */
+const toLineSafeImage = async (
+  blob: Blob,
+): Promise<{ blob: Blob; contentType: string; ext: string }> => {
+  if (blob.size <= LINE_TARGET_IMAGE_BYTES) {
+    return { blob, contentType: blob.type || 'image/png', ext: 'png' };
+  }
+
+  const bitmapUrl = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('Could not read the captured image.'));
+      el.src = bitmapUrl;
+    });
+
+    const encode = (scale: number, quality: number): Promise<Blob | null> => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return Promise.resolve(null);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    };
+
+    // Quality first (keeps the card sharp), dimensions only if that isn't enough.
+    const attempts: Array<[number, number]> = [
+      [1, 0.92], [1, 0.85], [1, 0.75],
+      [0.75, 0.85], [0.75, 0.75],
+      [0.5, 0.8], [0.5, 0.7],
+    ];
+
+    let smallest: Blob | null = null;
+    for (const [scale, quality] of attempts) {
+      const candidate = await encode(scale, quality);
+      if (!candidate) continue;
+      if (!smallest || candidate.size < smallest.size) smallest = candidate;
+      if (candidate.size <= LINE_TARGET_IMAGE_BYTES) {
+        console.info(`[BibPassDisplay] Compressed card for LINE: ${blob.size} -> ${candidate.size} bytes (scale ${scale}, quality ${quality}).`);
+        return { blob: candidate, contentType: 'image/jpeg', ext: 'jpg' };
+      }
+    }
+
+    if (smallest && smallest.size <= LINE_MAX_IMAGE_BYTES) {
+      return { blob: smallest, contentType: 'image/jpeg', ext: 'jpg' };
+    }
+    throw new Error('ไม่สามารถย่อขนาดรูปบัตรให้เล็กพอสำหรับ LINE ได้');
+  } finally {
+    URL.revokeObjectURL(bitmapUrl);
+  }
+};
+
 const uploadLiffBibpassImage = async (blob: Blob, bib: string): Promise<string> => {
+  const safe = await toLineSafeImage(blob);
+
   if (shouldMockPipelineApi()) {
-    console.warn('[BibPassDisplay] DEV MOCK: skipping real upload, returning a local blob URL.', { bib, size: blob.size });
+    console.warn('[BibPassDisplay] DEV MOCK: skipping real upload, returning a local blob URL.', { bib, size: safe.blob.size, type: safe.contentType });
     await devMockDelay();
-    return URL.createObjectURL(blob);
+    return URL.createObjectURL(safe.blob);
   }
 
   const config = getConfig();
   const formData = new FormData();
-  formData.append('file', blob, `bibpass_${bib}.png`);
+  formData.append('file', safe.blob, `bibpass_${bib}.${safe.ext}`);
   formData.append('bib', bib);
 
   const response = await fetchWithTimeout(`${config.SUPABASE_URL}${LIFF_UPLOAD_IMAGE_EDGE_FUNCTION_URL}`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${config.SUPABASE_ANON_KEY}` },
     body: formData,
-  }, 30000); // larger budget: the PNG can be a few MB on a mobile connection
+  }, 30000); // larger budget: the image can still be ~1 MB on a mobile connection
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || 'Failed to upload image.');
