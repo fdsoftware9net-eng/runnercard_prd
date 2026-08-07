@@ -4,6 +4,7 @@ import { HashRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Session } from '@supabase/supabase-js';
 import { getSession, onAuthStateChange } from './services/authService';
 import { getSupabaseClient } from './services/supabaseService';
+import { prepareLineSession } from './services/liffService';
 
 // FIX: Changed to named import for BibPassDisplay
 import { BibPassDisplay } from './components/BibPassDisplay';
@@ -47,12 +48,30 @@ const App: React.FC = () => {
         // This will initialize the client from environment variables.
         // It will throw an error if the variables are not set, which is caught below.
         getSupabaseClient();
-        
+
+        // Settle LINE before rendering any route.
+        //
+        // The LIFF app's Endpoint URL is this app's root, so LINE opens us
+        // directly. liff.init() resolves LINE's "liff.state" parameter against
+        // the current URL and calls location.replace() when they differ, so if
+        // the router were allowed to redirect first (an unauthenticated visit to
+        // "/" lands on /#/login) the SDK would bounce the page and it would
+        // visibly reload. Holding the loading screen until init settles keeps
+        // that fight from happening, and tells us whether we are in the LINE app
+        // in time to route runners to the lookup page instead of the admin login.
+        const inLineApp = await prepareLineSession();
+        if (inLineApp) {
+          const hash = window.location.hash;
+          if (!hash || hash === '#' || hash === '#/') {
+            window.location.hash = '#/lookup';
+          }
+        }
+
         const { session: currentSession, error: sessionError } = await getSession();
         if (sessionError) throw new Error(sessionError);
 
         setSession(currentSession);
-        
+
         subscription = onAuthStateChange(setSession);
       } catch (err: any) {
         console.error("Application initialization failed:", err.message);

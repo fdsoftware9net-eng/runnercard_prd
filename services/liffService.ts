@@ -1,22 +1,21 @@
 import liff from '@line/liff';
 import { getConfig } from '../constants';
 
-// Must stay in sync with the LIFF app's registered Endpoint URL path.
-const LIFF_ENTRY_PATH = '/liff-entry.html';
 const DEV_MOCK_LINE_USER_ID = 'DEV_MOCK_U0000000000000000000000000000';
+
+// prepareLineSession() gates the whole app's first render, so a slow or
+// unreachable LIFF endpoint must not be able to hold the loading screen open.
+const LIFF_INIT_TIMEOUT_MS = 6000;
 
 /**
  * Where LINE should send the user back after login.
  *
- * This must point at the bounce page, NOT the current URL. liff.login()
- * defaults redirectUri to wherever it is called from — which here is
- * "/#/lookup" — and LINE rejects any redirect_uri whose path falls outside the
- * registered Endpoint URL ("/liff-entry.html"), answering with "400 Bad
- * Request" on its login screen. Returning to the bounce page keeps the path
- * valid, and the page then forwards back into the hash router with the user
- * already logged in.
+ * Must stay within the LIFF app's registered Endpoint URL, which is this app's
+ * root — LINE answers "400 Bad Request" on its login screen for any redirect_uri
+ * outside it. The root also avoids the "#" that LINE rejects in endpoint URLs,
+ * and App.tsx routes runners on to the lookup page once LIFF has settled.
  */
-const getLiffRedirectUri = (): string => `${window.location.origin}${LIFF_ENTRY_PATH}`;
+const getLiffRedirectUri = (): string => `${window.location.origin}/`;
 
 let initPromise: Promise<void> | null = null;
 let sessionPromise: Promise<boolean> | null = null;
@@ -139,7 +138,14 @@ export const prepareLineSession = (): Promise<boolean> => {
   if (!sessionPromise) {
     sessionPromise = (async () => {
       try {
-        await initLiff();
+        // Bounded: a hanging init must not keep the whole app on its loading
+        // screen. Timing out just means we treat this as a normal browser visit.
+        await Promise.race([
+          initLiff(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('liff.init() timed out')), LIFF_INIT_TIMEOUT_MS)
+          ),
+        ]);
       } catch (err) {
         console.warn('[liffService] liff.init() failed — treating as a normal browser visit.', err);
         return false;
@@ -154,8 +160,8 @@ export const prepareLineSession = (): Promise<boolean> => {
       }
 
       if (!liff.isLoggedIn()) {
-        // Redirects away to LINE's login page and comes back to the bounce
-        // page; nothing after this runs on this page load.
+        // Redirects away to LINE's login page and back to the app root;
+        // nothing after this runs on this page load.
         liff.login({ redirectUri: getLiffRedirectUri() });
         return true;
       }

@@ -2,97 +2,19 @@
 <html lang="th">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Loading...</title>
-  <style>
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #111827;
-      color: #d1d5db;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-    .spinner {
-      width: 42px;
-      height: 42px;
-      border: 4px solid #374151;
-      border-top-color: #3b82f6;
-      border-radius: 50%;
-      animation: spin 0.9s linear infinite;
-      margin: 0 auto 14px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-  </style>
 </head>
 <body>
-  <div>
-    <div class="spinner"></div>
-    <div>กำลังเปิด...</div>
-  </div>
-
-  <!--
-    This page is registered as the LIFF app's Endpoint URL.
-
-    Two things force this indirection:
-
-    1. LINE rejects an Endpoint URL containing "#", but the app uses HashRouter,
-       so every runner-facing route lives under "/#/...".
-    2. liff.init() resolves LINE's own "liff.state" parameter by comparing it to
-       the current URL and calling location.replace() when they differ. If we
-       redirect into the hash router *before* init runs, the SDK bounces us back
-       here, this page redirects again, and the two fight forever — the page
-       visibly reloads itself in a loop.
-
-    So: run liff.init() HERE, at the registered endpoint, and let the SDK settle
-    its state (and exchange the code/state pair after a login redirect) while the
-    URL is still one it recognises. Only then hand over to the hash router, with
-    a clean URL so the SPA's own liff.init() has no leftover state to act on.
-  -->
-  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <script>
-    (function () {
-      // Must match VITE_LINE_LIFF_ID. Kept here as a literal because Vite copies
-      // public/ verbatim and does no substitution; ?liffId= overrides it so a
-      // different LIFF app can be pointed at this page without a rebuild.
-      var FALLBACK_LIFF_ID = '2006963905-anEPEooA';
-      var DESTINATION = '/#/lookup';
-      var GIVE_UP_AFTER_MS = 8000;
-
-      var handedOver = false;
-      function handOver(reason) {
-        if (handedOver) return;
-        handedOver = true;
-        // Deliberately drops the query string: liff.state has been consumed by
-        // init above, and leaving it in place is exactly what caused the loop.
-        console.info('[liff-entry] handing over to the app (' + reason + ')');
-        window.location.replace(DESTINATION);
-      }
-
-      // Never leave the runner on this page: if the SDK fails to load, init
-      // hangs, or anything else goes wrong, carry on into the app anyway. The
-      // app re-initialises LIFF itself and degrades to the normal browser flow
-      // when that is not possible.
-      setTimeout(function () { handOver('timeout'); }, GIVE_UP_AFTER_MS);
-
-      var params = new URLSearchParams(window.location.search);
-      var liffId = params.get('liffId') || FALLBACK_LIFF_ID;
-
-      if (!window.liff) {
-        handOver('sdk failed to load');
-        return;
-      }
-
-      window.liff
-        .init({ liffId: liffId })
-        .then(function () { handOver('init ok'); })
-        .catch(function (err) {
-          console.warn('[liff-entry] liff.init() failed', err);
-          handOver('init failed');
-        });
-    })();
+    // Legacy entry point. The LIFF app's Endpoint URL is now the site root, so
+    // LINE opens index.html directly and liff.init() runs there (see App.tsx) —
+    // nothing routes through this page any more.
+    //
+    // Kept only so an older Endpoint URL or a bookmarked link still lands
+    // somewhere useful. The query string is deliberately dropped: carrying
+    // LINE's "liff.state" into the hash router is what made the SDK and this
+    // page redirect at each other in a loop.
+    window.location.replace('/#/lookup');
   </script>
 </body>
 </html>
