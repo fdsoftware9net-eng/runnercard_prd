@@ -206,6 +206,13 @@ const MOTIVATIONAL_MESSAGES = [
   'ฮาล์ฟแรกจ๋าๆๆๆ พี่มาแล้วๆๆๆ',
 ];
 
+const WalletButtonSpinner: React.FC<{ className?: string }> = ({ className = 'text-white' }) => (
+  <svg className={`animate-spin h-4 w-4 ${className}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+  </svg>
+);
+
 interface BibPassDisplayProps {
 
 }
@@ -1272,10 +1279,10 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                 <h2 className="text-2xl font-bold mb-4">
                   {isThai ? `ยินดีต้อนรับ, ${runner.first_name}` : `Welcome, ${runner.first_name}`}
                 </h2>
-                <p className="hidden text-gray-300 mb-6">
+                <p className="text-gray-300 mb-6">
                   {isThai
-                    ? 'Runner Card ของคุณพร้อมแล้ว กรุณาบันทึกบัตรนี้เพื่อใช้แสดงในการรับเสื้อและเบอร์วิ่ง (Race Kit) พร้อมกับบัตรประชาชนตัวจริง'
-                    : 'Your runner card is ready. Please save this card to present for race kit pick-up along with your original passport.'}
+                    ? 'Runner Card ของคุณพร้อมแล้ว กรุณาบันทึกบัตรนี้เพื่อใช้แสดงพร้อมกับบัตรประชาชนตัวจริง'
+                    : 'Your Runner Card is ready. Please save this card to present with your physical ID. '}
                 </p>
 
                 <div className="space-y-4">
@@ -1288,24 +1295,72 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                   {/* <Button onClick={handleLinkLINEAccount} className="w-full bg-green-600 hover:bg-green-700 text-white focus:ring-green-500"> 
                    {isThai ? 'กดรับรูป Photo Thairun อัตโนมัติ' : 'Press to receive Photo Thairun. Auto'} 
                   </Button> */}
-                  {<div className="hidden border-t border-gray-700 pt-4">
-                    <h3 className="text-lg font-semibold mb-3 text-white">
-                      {isThai ? 'เพิ่มลงในกระเป๋าเงิน' : 'Add to Wallet'}
+                  <div className="border-t border-gray-700 pt-4">
+                    <h3 className="text-base font-semibold mb-4 text-white text-center">
+                      {isThai ? 'บันทึกเข้า Wallet เพื่อความสะดวกในการพกพา' : 'Save to Wallet for easy access'}
                     </h3>
-                    {walletError && <p className="text-red-500 mb-2 text-sm">{walletError}</p>}
-                    <div className="flex flex-col gap-3">
-                      <Button onClick={() => handleAddPassportToWallet('google')} variant="secondary" loading={isAddingToGoogleWallet}>
-                        {isAddingToGoogleWallet
-                          ? (isThai ? 'กำลังสร้าง...' : 'Generating...')
-                          : (isThai ? 'เพิ่มลงใน Google Wallet' : 'Add to Google Wallet')}
-                      </Button>
-                      <Button onClick={() => handleAddPassportToWallet('apple')} variant="secondary" loading={isAddingToAppleWallet}>
-                        {isAddingToAppleWallet
-                          ? (isThai ? 'กำลังสร้าง...' : 'Generating...')
-                          : (isThai ? 'เพิ่มลงใน Apple Wallet' : 'Add to Apple Wallet')}
-                      </Button>
+                    {walletError && <p className="text-red-500 mb-3 text-sm">{walletError}</p>}
+                    <div className="flex flex-row items-start gap-3">
+                      <div className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleAddPassportToWallet('apple')}
+                          disabled={isAddingToAppleWallet}
+                          aria-label="Add to Apple Wallet"
+                          className="flex h-[52px] w-full items-center justify-center gap-2 rounded-lg border border-gray-400 bg-black px-2 text-white transition hover:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 focus:ring-offset-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isAddingToAppleWallet ? (
+                            <span className="flex items-center gap-2 text-xs">
+                              <WalletButtonSpinner />
+                              {isThai ? 'กำลังสร้าง...' : 'Generating...'}
+                            </span>
+                          ) : (
+                            <>
+                              <img
+                                src="/apple-wallet-seeklogo.png"
+                                alt=""
+                                className="h-8 w-8 flex-shrink-0 rounded-md object-cover"
+                              />
+                              <span className="flex flex-col items-start leading-tight text-left">
+                                <span className="text-[10px] font-normal">Add to</span>
+                                <span className="whitespace-nowrap text-[13px] font-semibold">Apple Wallet</span>
+                              </span>
+                            </>
+                          )}
+                        </button>
+                        <span className="text-xs text-gray-400">{isThai ? 'สำหรับ iPhone' : 'For iPhone'}</span>
+                      </div>
+                      <div className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleAddPassportToWallet('google')}
+                          disabled={isAddingToGoogleWallet}
+                          aria-label="Add to Google Wallet"
+                          className="flex h-[52px] w-full items-center justify-center gap-2 rounded-lg border border-gray-800 bg-white px-2 text-black transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 focus:ring-offset-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isAddingToGoogleWallet ? (
+                            <span className="flex items-center gap-2 text-xs">
+                              <WalletButtonSpinner className="text-black" />
+                              {isThai ? 'กำลังสร้าง...' : 'Generating...'}
+                            </span>
+                          ) : (
+                            <>
+                              <img
+                                src="/google-wallet-seeklogo.png"
+                                alt=""
+                                className="h-8 w-8 flex-shrink-0 rounded-md object-cover"
+                              />
+                              <span className="flex flex-col items-start leading-tight text-left">
+                                <span className="text-[10px] font-normal">Add to</span>
+                                <span className="whitespace-nowrap text-[13px] font-semibold">Google Wallet</span>
+                              </span>
+                            </>
+                          )}
+                        </button>
+                        <span className="text-xs text-gray-400">{isThai ? 'สำหรับ Android' : 'For Android'}</span>
+                      </div>
                     </div>
-                  </div>}
+                  </div>
                 </div>
               </>
             );

@@ -14,28 +14,10 @@ const RUNNER_NOT_FOUND_ERROR = 'RUNNER_NOT_FOUND';
 const RunnerNotFoundMessage: React.FC = () => (
     <div className="p-3 text-left bg-red-900 text-red-200 rounded-md space-y-3 text-sm leading-relaxed">
         <p>
-            สิทธิ์นักวิ่งเก่านี้ สำหรับนักวิ่งบางแสน21-2025 หากไม่พบข้อมูล กรุณาตรวจสอบตัวสะกดหรือหมายเลขบัตรประชาชนอีกครั้งหรือส่งหลักฐานการสมัคร/วิ่ง ให้แอดมินบางแสน21 ทาง line@{' '}
-            <a
-                href="https://lin.ee/tH8wIgy"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline text-red-100 hover:text-white"
-            >
-                https://lin.ee/tH8wIgy
-            </a>
+        ไม่พบข้อมูลนักวิ่ง โปรดตรวจสอบรายละเอียดและลองใหม่อีกครั้ง 
         </p>
         <p>
-            This eligibility is for Bangsaen21-2025 runners only.
-            If no data is found, please check your spelling or ID card number again.
-            Alternatively, you may send your registration/running proof to the Bangsaen21 admin via Line@{' '}
-            <a
-                href="https://lin.ee/tH8wIgy"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline text-red-100 hover:text-white"
-            >
-                https://lin.ee/tH8wIgy
-            </a>
+        Runner not found. Please check your details and try again
         </p>
     </div>
 );
@@ -203,12 +185,11 @@ const RunnerLookupPage: React.FC = () => {
                 <div>
                     <h2 className="text-3xl font-extrabold text-center text-white">
                         {/* {config.lookup_page_title || 'Find Your Runner Card'} */}
-                        BANGSEAN21-2026
+                        BANGSEAN10-2026
                     </h2>
                     <p className="mt-2 text-center text-sm text-gray-400">
                         {/* {config.lookup_page_instructions || 'Enter your details below to find your pass.'} */}
-                        ตรวจสอบสิทธิ์สมัครบางแสน21-2026 รอบนักวิ่งเก่า <br/> 
-                        BANGSEAN21-2026 Loyalty Round Eligibility Check
+                        Find Your Runner Card
                     </p>
                 </div>
 
