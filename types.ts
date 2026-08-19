@@ -32,6 +32,7 @@ export interface Runner {
   apple_pass_url: string | null; // Re-added to match DB schema
   access_key: string; // UUID for personalized bib pass links
   web_pass_template_id?: string; // ID of the WebPassConfig template to use
+  custom_background_url?: string | null; // Runner-uploaded background replacing the template artwork on Card 1
   google_wallet_pass_id?: string | null; // Google Wallet pass object ID
   motivational_message?: string; // Runtime-only: random motivational message for Card 2
 }
@@ -64,7 +65,7 @@ export interface BibPassData {
 
 // --- User Activity Log Interfaces ---
 
-export type ActivityType = 'lookup' | 'save_image' | 'add_google_wallet' | 'add_apple_wallet' | 'view_pass' | 'update_runner' | 'link_line_account' | 'liff_register' | 'liff_send_image';
+export type ActivityType = 'lookup' | 'save_image' | 'add_google_wallet' | 'add_apple_wallet' | 'view_pass' | 'update_runner' | 'link_line_account' | 'liff_register' | 'liff_send_image' | 'change_background' | 'reset_background';
 export type SearchMethod = 'name' | 'id_card';
 
 export interface ActivityLogMetadata {

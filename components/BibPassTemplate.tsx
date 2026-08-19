@@ -12,6 +12,10 @@ interface TemplateProps {
   containerRefCallback?: (ref: HTMLDivElement | null) => void;
   isCapturing?: boolean;
   profilePictureUrl?: string;
+  // Darkens the background before the fields are drawn. Meant for the case
+  // where a runner's own photo has replaced the event artwork, which no longer
+  // guarantees a readable surface under the bib number and QR code.
+  backgroundOverlayOpacity?: number;
 }
 
 // Helper to fill templates
@@ -22,7 +26,7 @@ const fillTemplate = (template: string, runner: Runner) => {
   });
 };
 
-const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false, profilePictureUrl }) => {
+const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false, profilePictureUrl, backgroundOverlayOpacity = 0 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [pixelPositions, setPixelPositions] = useState<{ [key: string]: { left: number; top: number } }>({});
 
@@ -624,6 +628,19 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
             <div style={{ height: '600px', width: '100%' }} />
           )}
         </div>
+
+        {/* Readability scrim, drawn over the background but under every field.
+            Off (0) for the event artwork, which already reserves flat areas for
+            the text; on only when a runner photo has taken the artwork's place. */}
+        {backgroundOverlayOpacity > 0 && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundColor: `rgba(0, 0, 0, ${backgroundOverlayOpacity})`,
+              borderRadius: '20px',
+            }}
+          />
+        )}
 
         {/* Dynamic Fields Overlay */}
         <div className="absolute inset-0" style={{ overflow: 'visible' }} translate="no">
