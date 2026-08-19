@@ -1587,7 +1587,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         </div>
       )}
 
-      <h1 className="text-3xl font-extrabold mb-8 text-blue-400">BANGSEAN21-2026</h1>
+      <h1 className="text-3xl font-extrabold mb-8 text-blue-400">BANGSEAN10-2026</h1>
 
       <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left: Visual Pass (Using New Template) */}
