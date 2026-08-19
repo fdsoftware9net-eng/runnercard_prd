@@ -312,6 +312,40 @@ const BibConfigPage: React.FC = () => {
         setSelectedFieldId(newField.id);
     };
 
+    // A fixed image (event logo, frame, badge) shown on every runner's card.
+    // Lives in the field layer, so it survives a runner replacing the card
+    // background with their own photo — unlike a logo baked into the artwork.
+    const addImageField = () => {
+        const newField: PassField = {
+            id: uuidv4(),
+            key: 'custom_image',
+            label: 'New Image',
+            imageUrl: '',
+            imageWidth: 100,
+            x: 50,
+            y: 50,
+            fontSize: 16,
+            color: '#000000',
+            fontWeight: 'normal',
+            textAlign: 'center'
+        };
+        setWebConfig(prev => ({ ...prev, fields: [...prev.fields, newField] }));
+        setSelectedFieldId(newField.id);
+    };
+
+    // Fields are painted in array order, so the position in this list is what
+    // decides whether an image sits over or under the text around it.
+    const moveField = (id: string, direction: -1 | 1) => {
+        setWebConfig(prev => {
+            const index = prev.fields.findIndex(f => f.id === id);
+            const target = index + direction;
+            if (index === -1 || target < 0 || target >= prev.fields.length) return prev;
+            const fields = [...prev.fields];
+            [fields[index], fields[target]] = [fields[target], fields[index]];
+            return { ...prev, fields };
+        });
+    };
+
     const updateField = (id: string, updates: Partial<PassField>) => {
         setWebConfig(prev => {
             const updatedFields = prev.fields.map(f => {
@@ -576,22 +610,51 @@ const BibConfigPage: React.FC = () => {
                             >
                                 + Add Field
                             </button>
+                            <button
+                                type="button"
+                                onClick={addImageField}
+                                className="ml-2 px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm"
+                            >
+                                + Add Image
+                            </button>
                         </div>
+                        <p className="text-xs text-gray-400 mb-2">Later items are drawn on top. Use ▲▼ to change the stacking order.</p>
                         <div className="space-y-2 max-h-60 overflow-y-auto">
-                            {webConfig.fields.map(field => (
+                            {webConfig.fields.map((field, index) => (
                                 <div
                                     key={field.id}
                                     onClick={() => setSelectedFieldId(field.id)}
                                     className={`p-2 rounded cursor-pointer ${selectedFieldId === field.id ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-600'}`}
                                 >
                                     <div className="flex justify-between items-center">
-                                        <span className="text-white text-sm truncate">{field.label || field.key}</span>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); removeField(field.id); }}
-                                            className="text-red-400 hover:text-red-300 px-2"
-                                        >
-                                            ×
-                                        </button>
+                                        <span className="text-white text-sm truncate">
+                                            {field.key === 'custom_image' && <span className="mr-1">🖼️</span>}
+                                            {field.label || field.key}
+                                        </span>
+                                        <div className="flex items-center shrink-0">
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); moveField(field.id, -1); }}
+                                                disabled={index === 0}
+                                                title="Move up (behind)"
+                                                className="px-1 text-gray-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                                            >
+                                                ▲
+                                            </button>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); moveField(field.id, 1); }}
+                                                disabled={index === webConfig.fields.length - 1}
+                                                title="Move down (in front)"
+                                                className="px-1 text-gray-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                                            >
+                                                ▼
+                                            </button>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); removeField(field.id); }}
+                                                className="text-red-400 hover:text-red-300 px-2"
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
                                     </div>
                                     <div className="text-xs text-gray-400 mt-1">
                                         Position: X={field.x.toFixed(1)}%, Y={field.y.toFixed(1)}%
@@ -637,7 +700,7 @@ const BibConfigPage: React.FC = () => {
                                             onClick={() => {
                                                 // Switch to multiple mode: set dataSources from key if exists
                                                 const currentKey = selectedField.key;
-                                                if (currentKey !== 'qr_code' && currentKey !== 'custom_text' && currentKey !== 'profile_picture') {
+                                                if (currentKey !== 'qr_code' && currentKey !== 'custom_text' && currentKey !== 'profile_picture' && currentKey !== 'custom_image') {
                                                     updateField(selectedField.id, { 
                                                         dataSources: [currentKey],
                                                         separator: ' '
@@ -666,11 +729,18 @@ const BibConfigPage: React.FC = () => {
                                         name="key"
                                         label="Data Source"
                                         value={selectedField.key}
-                                        onChange={(e) => updateField(selectedField.id, { key: e.target.value as any })}
+                                        onChange={(e) => {
+                                            const key = e.target.value as any;
+                                            // Fit modes measure a text node this field no longer has.
+                                            updateField(selectedField.id, key === 'custom_image'
+                                                ? { key, toFitType: undefined, toFitWidth: undefined, minSize: undefined }
+                                                : { key });
+                                        }}
                                     >
                                         <option value="custom_text">Custom Text</option>
                                         <option value="qr_code">QR Code</option>
                                         <option value="profile_picture">Profile Picture</option>
+                                        <option value="custom_image">Image / Logo</option>
                                         <optgroup label="Runner Data">
                                             {RUNNER_COLUMNS.map(col => <option key={col} value={col}>{col}</option>)}
                                         </optgroup>
@@ -742,7 +812,7 @@ const BibConfigPage: React.FC = () => {
                                     />
                                 )}
 
-                                {(selectedField.key !== 'qr_code' && selectedField.key !== 'profile_picture') && (
+                                {(selectedField.key !== 'qr_code' && selectedField.key !== 'profile_picture' && selectedField.key !== 'custom_image') && (
                                     <>
                                         <div className="grid grid-cols-2 gap-4">
                                             <Input
@@ -876,6 +946,55 @@ const BibConfigPage: React.FC = () => {
                                     />
                                 )}
 
+                                {selectedField.key === 'custom_image' && (
+                                    <div className="space-y-4">
+                                        <ImageUploadInput
+                                            label="Image / Logo"
+                                            url={selectedField.imageUrl || ''}
+                                            onUrlChange={(url) => updateField(selectedField.id, { imageUrl: url })}
+                                        />
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <Input
+                                                id="imageWidth"
+                                                name="imageWidth"
+                                                label="Width (px)"
+                                                type="number"
+                                                value={selectedField.imageWidth ?? ''}
+                                                onChange={(e) => updateField(selectedField.id, { imageWidth: e.target.value ? Number(e.target.value) : undefined })}
+                                                placeholder="e.g., 100"
+                                            />
+                                            <Input
+                                                id="imageHeight"
+                                                name="imageHeight"
+                                                label="Height (px)"
+                                                type="number"
+                                                value={selectedField.imageHeight ?? ''}
+                                                onChange={(e) => updateField(selectedField.id, { imageHeight: e.target.value ? Number(e.target.value) : undefined })}
+                                                placeholder="auto (keeps ratio)"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-300 mb-1">
+                                                Opacity ({Math.round((selectedField.imageOpacity ?? 1) * 100)}%)
+                                            </label>
+                                            <input
+                                                type="range"
+                                                min={0}
+                                                max={1}
+                                                step={0.05}
+                                                value={selectedField.imageOpacity ?? 1}
+                                                onChange={(e) => updateField(selectedField.id, { imageOpacity: Number(e.target.value) })}
+                                                className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-800 accent-blue-600"
+                                            />
+                                        </div>
+                                        <p className="text-xs text-gray-400">
+                                            Sizes are in pixels at the card's natural 450px width. This image is drawn over the
+                                            background on every runner's card using this template, so it stays visible even when a
+                                            runner replaces the background with their own photo.
+                                        </p>
+                                    </div>
+                                )}
+
                                 <div className="pt-2 border-t border-gray-600 space-y-2">
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
@@ -905,6 +1024,7 @@ const BibConfigPage: React.FC = () => {
                                     </div>
                                 </div>
 
+                                {selectedField.key !== 'custom_image' && (
                                 <div className="pt-2 border-t border-gray-600 space-y-2">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-300 mb-2">Fit Type</label>
@@ -988,6 +1108,7 @@ const BibConfigPage: React.FC = () => {
                                         </div>
                                     )}
                                 </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -1057,6 +1178,11 @@ const BibConfigPage: React.FC = () => {
                                         } else if (field.key === 'profile_picture') {
                                             overlayWidth = `${field.profileWidth || 100}px`;
                                             overlayHeight = `${field.profileHeight || 100}px`;
+                                        } else if (field.key === 'custom_image') {
+                                            // Match the drag box to what the field actually draws, so an
+                                            // image is grabbed where it is rather than by a 20px stub.
+                                            overlayWidth = field.imageWidth ? `${field.imageWidth}px` : 'auto';
+                                            overlayHeight = field.imageHeight ? `${field.imageHeight}px` : 'auto';
                                         }
 
                                         return (

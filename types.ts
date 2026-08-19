@@ -246,10 +246,17 @@ export interface AppleWalletConfig {
 
 export interface PassField {
   id: string;
-  key: keyof Runner | 'custom_text' | 'qr_code' | 'profile_picture';
+  key: keyof Runner | 'custom_text' | 'qr_code' | 'profile_picture' | 'custom_image';
   label: string; // Display name in editor
   valueTemplate?: string; // For composite values like "{first_name} {last_name}"
   customText?: string; // For static text
+  // For 'custom_image': a fixed image (event logo, frame, badge) drawn on every
+  // runner's card. Lives in the field layer, so it stays visible when a runner
+  // replaces the background artwork with their own photo.
+  imageUrl?: string;
+  imageWidth?: number; // px at the card's natural 450px width
+  imageHeight?: number; // px; omit to keep the image's own aspect ratio
+  imageOpacity?: number; // 0-1, default 1
   profilePicture?: string; // For profile picture
   profileWidth?: number; // For profile picture width
   profileHeight?: number; // For profile picture height

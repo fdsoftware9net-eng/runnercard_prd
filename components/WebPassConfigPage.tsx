@@ -323,6 +323,40 @@ const WebPassConfigPage: React.FC = () => {
         setSelectedFieldId(newField.id);
     };
 
+    // A fixed image (event logo, frame, badge) shown on every runner's card.
+    // Lives in the field layer, so it survives a runner replacing the card
+    // background with their own photo — unlike a logo baked into the artwork.
+    const addImageField = () => {
+        const newField: PassField = {
+            id: uuidv4(),
+            key: 'custom_image',
+            label: 'New Image',
+            imageUrl: '',
+            imageWidth: 100,
+            x: 50,
+            y: 50,
+            fontSize: 16,
+            color: '#000000',
+            fontWeight: 'normal',
+            textAlign: 'center'
+        };
+        setWebConfig(prev => ({ ...prev, fields: [...prev.fields, newField] }));
+        setSelectedFieldId(newField.id);
+    };
+
+    // Fields are painted in array order, so the position in this list is what
+    // decides whether an image sits over or under the text around it.
+    const moveField = (id: string, direction: -1 | 1) => {
+        setWebConfig(prev => {
+            const index = prev.fields.findIndex(f => f.id === id);
+            const target = index + direction;
+            if (index === -1 || target < 0 || target >= prev.fields.length) return prev;
+            const fields = [...prev.fields];
+            [fields[index], fields[target]] = [fields[target], fields[index]];
+            return { ...prev, fields };
+        });
+    };
+
     const updateField = (id: string, updates: Partial<PassField>) => {
         setWebConfig(prev => ({
             ...prev,
@@ -570,29 +604,60 @@ const WebPassConfigPage: React.FC = () => {
                     <div className="p-6 bg-gray-700 rounded-lg shadow-sm border border-gray-600">
                         <div className="flex justify-between items-center mb-4 border-b border-gray-600 pb-2">
                             <h3 className="text-xl font-bold text-white">Fields</h3>
-                            <button
-                                type="button"
-                                onClick={addField}
-                                className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
-                            >
-                                + Add Field
-                            </button>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={addField}
+                                    className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
+                                >
+                                    + Add Field
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={addImageField}
+                                    className="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm"
+                                >
+                                    + Add Image
+                                </button>
+                            </div>
                         </div>
+                        <p className="text-xs text-gray-400 mb-2">Later items are drawn on top. Use ▲▼ to change the stacking order.</p>
                         <div className="space-y-2 max-h-60 overflow-y-auto">
-                            {webConfig.fields.map(field => (
+                            {webConfig.fields.map((field, index) => (
                                 <div
                                     key={field.id}
                                     onClick={() => setSelectedFieldId(field.id)}
                                     className={`p-2 rounded cursor-pointer ${selectedFieldId === field.id ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-600'}`}
                                 >
                                     <div className="flex justify-between items-center">
-                                        <span className="text-white text-sm truncate">{field.label || field.key}</span>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); removeField(field.id); }}
-                                            className="text-red-400 hover:text-red-300 px-2"
-                                        >
-                                            ×
-                                        </button>
+                                        <span className="text-white text-sm truncate">
+                                            {field.key === 'custom_image' && <span className="mr-1">🖼️</span>}
+                                            {field.label || field.key}
+                                        </span>
+                                        <div className="flex items-center shrink-0">
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); moveField(field.id, -1); }}
+                                                disabled={index === 0}
+                                                title="Move up (behind)"
+                                                className="px-1 text-gray-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                                            >
+                                                ▲
+                                            </button>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); moveField(field.id, 1); }}
+                                                disabled={index === webConfig.fields.length - 1}
+                                                title="Move down (in front)"
+                                                className="px-1 text-gray-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                                            >
+                                                ▼
+                                            </button>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); removeField(field.id); }}
+                                                className="text-red-400 hover:text-red-300 px-2"
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
                                     </div>
                                     <div className="text-xs text-gray-400 mt-1">
                                         Position: X={field.x.toFixed(1)}%, Y={field.y.toFixed(1)}%
@@ -638,7 +703,7 @@ const WebPassConfigPage: React.FC = () => {
                                             onClick={() => {
                                                 // Switch to multiple mode: set dataSources from key if exists
                                                 const currentKey = selectedField.key;
-                                                if (currentKey !== 'qr_code' && currentKey !== 'custom_text' && currentKey !== 'profile_picture') {
+                                                if (currentKey !== 'qr_code' && currentKey !== 'custom_text' && currentKey !== 'profile_picture' && currentKey !== 'custom_image') {
                                                     updateField(selectedField.id, { 
                                                         dataSources: [currentKey],
                                                         separator: ' '
@@ -667,10 +732,17 @@ const WebPassConfigPage: React.FC = () => {
                                         name="key"
                                         label="Data Source"
                                         value={selectedField.key}
-                                        onChange={(e) => updateField(selectedField.id, { key: e.target.value as any })}
+                                        onChange={(e) => {
+                                            const key = e.target.value as any;
+                                            // Fit modes measure a text node this field no longer has.
+                                            updateField(selectedField.id, key === 'custom_image'
+                                                ? { key, toFitType: undefined, toFitWidth: undefined, minSize: undefined }
+                                                : { key });
+                                        }}
                                     >
                                         <option value="custom_text">Custom Text</option>
                                         <option value="qr_code">QR Code</option>
+                                        <option value="custom_image">Image / Logo</option>
                                         <optgroup label="Runner Data">
                                             {RUNNER_COLUMNS.map(col => <option key={col} value={col}>{col}</option>)}
                                         </optgroup>
@@ -742,7 +814,7 @@ const WebPassConfigPage: React.FC = () => {
                                     />
                                 )}
 
-                                {selectedField.key !== 'qr_code' && (
+                                {selectedField.key !== 'qr_code' && selectedField.key !== 'custom_image' && (
                                     <>
                                         <div className="grid grid-cols-2 gap-4">
                                             <Input
@@ -822,6 +894,55 @@ const WebPassConfigPage: React.FC = () => {
                                     />
                                 )}
 
+                                {selectedField.key === 'custom_image' && (
+                                    <div className="space-y-4">
+                                        <ImageUploadInput
+                                            label="Image / Logo"
+                                            url={selectedField.imageUrl || ''}
+                                            onUrlChange={(url) => updateField(selectedField.id, { imageUrl: url })}
+                                        />
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <Input
+                                                id="imageWidth"
+                                                name="imageWidth"
+                                                label="Width (px)"
+                                                type="number"
+                                                value={selectedField.imageWidth ?? ''}
+                                                onChange={(e) => updateField(selectedField.id, { imageWidth: e.target.value ? Number(e.target.value) : undefined })}
+                                                placeholder="e.g., 100"
+                                            />
+                                            <Input
+                                                id="imageHeight"
+                                                name="imageHeight"
+                                                label="Height (px)"
+                                                type="number"
+                                                value={selectedField.imageHeight ?? ''}
+                                                onChange={(e) => updateField(selectedField.id, { imageHeight: e.target.value ? Number(e.target.value) : undefined })}
+                                                placeholder="auto (keeps ratio)"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-300 mb-1">
+                                                Opacity ({Math.round((selectedField.imageOpacity ?? 1) * 100)}%)
+                                            </label>
+                                            <input
+                                                type="range"
+                                                min={0}
+                                                max={1}
+                                                step={0.05}
+                                                value={selectedField.imageOpacity ?? 1}
+                                                onChange={(e) => updateField(selectedField.id, { imageOpacity: Number(e.target.value) })}
+                                                className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-800 accent-blue-600"
+                                            />
+                                        </div>
+                                        <p className="text-xs text-gray-400">
+                                            Sizes are in pixels at the card's natural 450px width. This image is drawn over the
+                                            background on every runner's card using this template, so it stays visible even when a
+                                            runner replaces the background with their own photo.
+                                        </p>
+                                    </div>
+                                )}
+
                                 <div className="pt-2 border-t border-gray-600 space-y-2">
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
@@ -851,6 +972,7 @@ const WebPassConfigPage: React.FC = () => {
                                     </div>
                                 </div>
 
+                                {selectedField.key !== 'custom_image' && (
                                 <div className="pt-2 border-t border-gray-600 space-y-2">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-300 mb-2">Fit Type</label>
@@ -934,6 +1056,7 @@ const WebPassConfigPage: React.FC = () => {
                                         </div>
                                     )}
                                 </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -992,24 +1115,39 @@ const WebPassConfigPage: React.FC = () => {
                                     )}
 
                                     {/* Interactive Overlay Layer - Matches the template's field positions */}
-                                    {webConfig.fields.map(field => (
-                                        <div
-                                            key={`overlay-${field.id}`}
-                                            onMouseDown={(e) => handleMouseDown(e, field.id)}
-                                            className={`absolute cursor-move border-2 ${selectedFieldId === field.id ? 'border-blue-500 bg-blue-500/20' : 'border-transparent hover:border-white/50'}`}
-                                            style={{
-                                                left: `${field.x}%`,
-                                                top: `${field.y}%`,
-                                                width: field.key === 'qr_code' ? `${field.fontSize * 4}px` : (field.width ? `${field.width}%` : 'auto'),
-                                                height: field.key === 'qr_code' ? `${field.fontSize * 4}px` : 'auto',
-                                                minWidth: '20px',
-                                                minHeight: '20px',
-                                                transform: 'translate(-50%, -50%)', // Always center anchor for easier dragging logic
-                                                zIndex: 50
-                                            }}
-                                            title={field.label}
-                                        />
-                                    ))}
+                                    {webConfig.fields.map(field => {
+                                        // Match the drag box to what the field actually draws, so an
+                                        // image is grabbed where it is rather than by a 20px stub.
+                                        let overlayWidth = field.width ? `${field.width}%` : 'auto';
+                                        let overlayHeight = 'auto';
+
+                                        if (field.key === 'qr_code') {
+                                            overlayWidth = `${field.fontSize * 4}px`;
+                                            overlayHeight = `${field.fontSize * 4}px`;
+                                        } else if (field.key === 'custom_image') {
+                                            overlayWidth = field.imageWidth ? `${field.imageWidth}px` : 'auto';
+                                            overlayHeight = field.imageHeight ? `${field.imageHeight}px` : 'auto';
+                                        }
+
+                                        return (
+                                            <div
+                                                key={`overlay-${field.id}`}
+                                                onMouseDown={(e) => handleMouseDown(e, field.id)}
+                                                className={`absolute cursor-move border-2 ${selectedFieldId === field.id ? 'border-blue-500 bg-blue-500/20' : 'border-transparent hover:border-white/50'}`}
+                                                style={{
+                                                    left: `${field.x}%`,
+                                                    top: `${field.y}%`,
+                                                    width: overlayWidth,
+                                                    height: overlayHeight,
+                                                    minWidth: '20px',
+                                                    minHeight: '20px',
+                                                    transform: 'translate(-50%, -50%)', // Always center anchor for easier dragging logic
+                                                    zIndex: 50
+                                                }}
+                                                title={field.label}
+                                            />
+                                        );
+                                    })}
 
                                     {/* To Fit Width Indicator - Red border showing desired width */}
                                     {webConfig.fields
