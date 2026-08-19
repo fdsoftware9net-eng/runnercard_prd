@@ -127,6 +127,10 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
         else if (field.key === 'profile_picture') {
           topPx -= 0;
         }
+        else if (field.key === 'custom_image') {
+          // Images are anchored dead centre, so they need no baseline nudge.
+          topPx -= 0;
+        }
         else if (field.key === 'qr_code') {
           topPx -= 0;
         } else if (field.key === 'wave_start') {
@@ -686,6 +690,37 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
                 >
                   {qrCodeUrl && <img src={qrCodeUrl} alt="QR" style={{ width: `${field.fontSize * 4}px`, height: 'auto' }} />}
                 </div>
+              );
+            }
+
+            if (field.key === 'custom_image') {
+              if (!field.imageUrl) return null;
+
+              const pixelPos = isCapturing && pixelPositions[field.id]
+                ? pixelPositions[field.id]
+                : null;
+
+              return (
+                <img
+                  key={field.id}
+                  src={field.imageUrl}
+                  alt={field.label || ''}
+                  // No crossOrigin attribute on purpose: the background image
+                  // doesn't set one either, and html2canvas (useCORS: true)
+                  // applies it to its own clone at capture time. Setting it here
+                  // would break plain display of any host without CORS headers.
+                  style={{
+                    position: 'absolute',
+                    left: pixelPos ? `${pixelPos.left}px` : `${field.x}%`,
+                    top: pixelPos ? `${pixelPos.top}px` : `${field.y}%`,
+                    transform: 'translate(-50%, -50%)',
+                    width: field.imageWidth ? `${field.imageWidth}px` : 'auto',
+                    height: field.imageHeight ? `${field.imageHeight}px` : 'auto',
+                    opacity: field.imageOpacity ?? 1,
+                    objectFit: 'contain',
+                    pointerEvents: 'none',
+                  }}
+                />
               );
             }
 
