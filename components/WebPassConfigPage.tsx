@@ -93,6 +93,20 @@ const WEB_PREVIEW_RUNNER_FRI: Runner = {
     access_key: 'preview-access-key'
 };
 
+// Stand-in for a runner's upload, so the photo slot can be positioned against
+// the cut-out artwork without needing a real runner. Inline rather than a file
+// so the editor never depends on an asset being present.
+const SAMPLE_RUNNER_PHOTO =
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800">' +
+        '<defs><pattern id="d" width="40" height="40" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">' +
+        '<rect width="40" height="40" fill="#475569"/><rect width="20" height="40" fill="#64748b"/></pattern></defs>' +
+        '<rect width="600" height="800" fill="url(#d)"/>' +
+        '<text x="300" y="410" font-family="sans-serif" font-size="44" fill="#f8fafc" text-anchor="middle">SAMPLE PHOTO</text>' +
+        '</svg>'
+    );
+
 // Helper component for Image Upload
 const ImageUploadInput: React.FC<{
     label: string;
@@ -164,6 +178,7 @@ const WebPassConfigPage: React.FC = () => {
     const [rules, setRules] = useState<TemplateAssignmentRule[]>([]);
     const [currentTemplateId, setCurrentTemplateId] = useState<string>('');
     const [showGrid, setShowGrid] = useState(false);
+    const [previewWithPhoto, setPreviewWithPhoto] = useState(false);
     const previewRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState<number>(500); // Default to 500px
 
@@ -565,6 +580,16 @@ const WebPassConfigPage: React.FC = () => {
                             url={webConfig.backgroundImageUrl || ''}
                             onUrlChange={(url) => setWebConfig(prev => ({ ...prev, backgroundImageUrl: url }))}
                         />
+                        <ImageUploadInput
+                            label="Background (photo mode)"
+                            url={webConfig.backgroundImageUrlWithPhoto || ''}
+                            onUrlChange={(url) => setWebConfig(prev => ({ ...prev, backgroundImageUrlWithPhoto: url }))}
+                        />
+                        <p className="text-xs text-gray-400 -mt-2 mb-4">
+                            Used instead of the image above once a runner has uploaded a photo. Must be a PNG that is
+                            transparent over the Runner Photo slot — the photo is drawn behind it. Leave empty to keep the
+                            same artwork in both cases.
+                        </p>
                         <div>
                             <label className="block text-sm font-medium text-gray-300 mb-1">Background Color</label>
                             <div className="flex items-center gap-2">
@@ -734,15 +759,29 @@ const WebPassConfigPage: React.FC = () => {
                                         value={selectedField.key}
                                         onChange={(e) => {
                                             const key = e.target.value as any;
-                                            // Fit modes measure a text node this field no longer has.
-                                            updateField(selectedField.id, key === 'custom_image'
-                                                ? { key, toFitType: undefined, toFitWidth: undefined, minSize: undefined }
-                                                : { key });
+                                            // Fit modes measure a text node these fields no longer have.
+                                            const dropFit = { toFitType: undefined, toFitWidth: undefined, minSize: undefined };
+                                            if (key === 'custom_image') {
+                                                updateField(selectedField.id, { key, ...dropFit });
+                                            } else if (key === 'profile_picture') {
+                                                // Write the slot size out explicitly rather than leaning on
+                                                // defaults, so the saved template states its own shape.
+                                                updateField(selectedField.id, {
+                                                    key,
+                                                    ...dropFit,
+                                                    profileWidth: selectedField.profileWidth || 100,
+                                                    profileHeight: selectedField.profileHeight || 100,
+                                                    profileShape: selectedField.profileShape || 'square'
+                                                });
+                                            } else {
+                                                updateField(selectedField.id, { key });
+                                            }
                                         }}
                                     >
                                         <option value="custom_text">Custom Text</option>
                                         <option value="qr_code">QR Code</option>
                                         <option value="custom_image">Image / Logo</option>
+                                        <option value="profile_picture">Runner Photo</option>
                                         <optgroup label="Runner Data">
                                             {RUNNER_COLUMNS.map(col => <option key={col} value={col}>{col}</option>)}
                                         </optgroup>
@@ -814,7 +853,7 @@ const WebPassConfigPage: React.FC = () => {
                                     />
                                 )}
 
-                                {selectedField.key !== 'qr_code' && selectedField.key !== 'custom_image' && (
+                                {selectedField.key !== 'qr_code' && selectedField.key !== 'custom_image' && selectedField.key !== 'profile_picture' && (
                                     <>
                                         <div className="grid grid-cols-2 gap-4">
                                             <Input
@@ -892,6 +931,66 @@ const WebPassConfigPage: React.FC = () => {
                                         value={selectedField.fontSize}
                                         onChange={(e) => updateField(selectedField.id, { fontSize: Number(e.target.value) })}
                                     />
+                                )}
+
+                                {selectedField.key === 'profile_picture' && (
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <Input
+                                                id="profileWidth"
+                                                name="profileWidth"
+                                                label="Width (px)"
+                                                type="number"
+                                                value={selectedField.profileWidth || 100}
+                                                onChange={(e) => updateField(selectedField.id, { profileWidth: Number(e.target.value) })}
+                                            />
+                                            <Input
+                                                id="profileHeight"
+                                                name="profileHeight"
+                                                label="Height (px)"
+                                                type="number"
+                                                value={selectedField.profileHeight || 100}
+                                                onChange={(e) => updateField(selectedField.id, { profileHeight: Number(e.target.value) })}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-300 mb-2">Shape</label>
+                                            <div className="flex gap-4">
+                                                <div className="flex items-center space-x-2">
+                                                    <input
+                                                        type="radio"
+                                                        id="profileShape-square"
+                                                        name={`profileShape-${selectedField.id}`}
+                                                        checked={selectedField.profileShape === 'square'}
+                                                        onChange={() => updateField(selectedField.id, { profileShape: 'square' })}
+                                                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                    />
+                                                    <label htmlFor="profileShape-square" className="text-sm text-gray-300 select-none cursor-pointer">
+                                                        Square
+                                                    </label>
+                                                </div>
+                                                <div className="flex items-center space-x-2">
+                                                    <input
+                                                        type="radio"
+                                                        id="profileShape-circle"
+                                                        name={`profileShape-${selectedField.id}`}
+                                                        checked={!selectedField.profileShape || selectedField.profileShape === 'circle'}
+                                                        onChange={() => updateField(selectedField.id, { profileShape: 'circle' })}
+                                                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                                                    />
+                                                    <label htmlFor="profileShape-circle" className="text-sm text-gray-300 select-none cursor-pointer">
+                                                        Circle
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p className="text-xs text-gray-400">
+                                            This is the slot the runner's own photo drops into, and the shape their crop tool is
+                                            locked to. It is drawn <strong>behind</strong> the artwork, so the "Background (photo
+                                            mode)" image above must be transparent over this area for the photo to show through.
+                                            One photo slot per template.
+                                        </p>
+                                    </div>
                                 )}
 
                                 {selectedField.key === 'custom_image' && (
@@ -972,7 +1071,7 @@ const WebPassConfigPage: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {selectedField.key !== 'custom_image' && (
+                                {selectedField.key !== 'custom_image' && selectedField.key !== 'profile_picture' && (
                                 <div className="pt-2 border-t border-gray-600 space-y-2">
                                     <div>
                                         <label className="block text-sm font-medium text-gray-300 mb-2">Fit Type</label>
@@ -1078,6 +1177,16 @@ const WebPassConfigPage: React.FC = () => {
                                 <label htmlFor="showGrid" className="text-sm text-gray-300 select-none cursor-pointer">
                                     Show Grid
                                 </label>
+                                <input
+                                    type="checkbox"
+                                    id="previewWithPhoto"
+                                    checked={previewWithPhoto}
+                                    onChange={(e) => setPreviewWithPhoto(e.target.checked)}
+                                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded ml-4"
+                                />
+                                <label htmlFor="previewWithPhoto" className="text-sm text-gray-300 select-none cursor-pointer">
+                                    Photo Mode
+                                </label>
                             </div>
                         </div>
                         <div className="flex justify-end mb-2">
@@ -1098,6 +1207,10 @@ const WebPassConfigPage: React.FC = () => {
                                         runner={WEB_PREVIEW_RUNNER_VIP}
                                         config={webConfig}
                                         qrCodeUrl="https://via.placeholder.com/150?text=QR"
+                                        // Feeding a sample photo is what switches the preview to the
+                                        // cut-out artwork, so the slot can be lined up against the
+                                        // artwork it actually shows through.
+                                        profilePictureUrl={previewWithPhoto ? SAMPLE_RUNNER_PHOTO : undefined}
                                     />
 
                                     {/* Grid Overlay */}
@@ -1124,6 +1237,9 @@ const WebPassConfigPage: React.FC = () => {
                                         if (field.key === 'qr_code') {
                                             overlayWidth = `${field.fontSize * 4}px`;
                                             overlayHeight = `${field.fontSize * 4}px`;
+                                        } else if (field.key === 'profile_picture') {
+                                            overlayWidth = `${field.profileWidth || 100}px`;
+                                            overlayHeight = `${field.profileHeight || 100}px`;
                                         } else if (field.key === 'custom_image') {
                                             overlayWidth = field.imageWidth ? `${field.imageWidth}px` : 'auto';
                                             overlayHeight = field.imageHeight ? `${field.imageHeight}px` : 'auto';

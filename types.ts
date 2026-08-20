@@ -292,6 +292,11 @@ export interface WebPassConfig {
   eventName: string;
   eventLogoUrl: string;
   backgroundImageUrl?: string;
+  // Artwork used instead of backgroundImageUrl once the runner has supplied a
+  // photo. This is the cut-out version: it must be a PNG transparent over the
+  // photo slot, since the photo is drawn behind the artwork. Falls back to
+  // backgroundImageUrl when not set.
+  backgroundImageUrlWithPhoto?: string;
   backgroundColor?: string;
   fontFamily?: 'LINESeedSansTH' | 'Uniform' | 'Uniform Condensed' | 'Uniform Extra Condensed' | 'FC SaveSpace' | 'GreenKingsWood' | 'sans-serif'; // Font family selection
 
