@@ -332,6 +332,34 @@ const WalletButtonSpinner: React.FC<{ className?: string }> = ({ className = 'te
   </svg>
 );
 
+/**
+ * Covers the page while html2canvas works.
+ *
+ * The capture needs the card unscaled and unclipped, which on a phone means it
+ * briefly balloons past the edge of the screen and shoves the page below it
+ * down — the card looked like it vanished for a second or two. Nothing about
+ * the capture can be constrained to stop that (see removeScaleForCapture), so
+ * cover the whole viewport for the duration instead.
+ *
+ * Full-screen and fixed, so it is outside the captured element and can't end up
+ * in the image.
+ */
+const CardCaptureOverlay: React.FC<{ show: boolean; isThai: boolean }> = ({ show, isThai }) => {
+  if (!show) return null;
+
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-gray-900/95">
+      <WalletButtonSpinner />
+      <span className="text-base font-medium text-gray-200">
+        {isThai ? 'กำลังบันทึกรูปภาพ...' : 'Saving image...'}
+      </span>
+      <span className="px-8 text-center text-xs text-gray-400">
+        {isThai ? 'กรุณารอสักครู่ อย่าเพิ่งปิดหน้านี้' : 'Please wait, don’t close this page.'}
+      </span>
+    </div>
+  );
+};
+
 interface BibPassDisplayProps {
 
 }
@@ -396,6 +424,9 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
   const templateContainerRef2 = useRef<HTMLDivElement | null>(null);
   const [isCapturing, setIsCapturing] = useState(false);
   const [isCapturing2, setIsCapturing2] = useState(false);
+  // Separate from isCapturing: this one goes up before the card is moved and
+  // comes down after it is back, so the slot is never left visibly empty.
+  const [showCaptureOverlay, setShowCaptureOverlay] = useState(false);
   // Set true once BibPassTemplate has finished its own field-position/font-size
   // measurement pass (see its onLayoutReady prop). Used to make sure the LIFF
   // auto-send pipeline doesn't try to capture the card before it's visually
@@ -785,6 +816,14 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
     const hasCard2 = !!(runner.first_half?.toLowerCase() === 'yes' && webConfig2 && templateContainerRef2.current);
 
+    // html2canvas needs the card at its natural 450px layout, so the scale comes
+    // off — which on a phone means the card briefly grows past the edge of the
+    // screen and pushes the page below it down. That is hidden by the
+    // full-screen overlay (see showCaptureOverlay) rather than by holding the
+    // card in place: html2canvas clones the document into an iframe and has to
+    // find the element there, and parking the card off-screen with
+    // position:fixed makes it fail with "Unable to find element in cloned
+    // iframe".
     const removeScaleForCapture = () => {
       if (card1ScaleWrapperRef.current) card1ScaleWrapperRef.current.style.transform = 'none';
       if (card1OuterRef.current) { card1OuterRef.current.style.height = 'auto'; card1OuterRef.current.style.overflow = 'visible'; }
@@ -856,10 +895,17 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     };
 
     try {
-      // 0. Make sure the template(s) have finished measuring before we touch anything
+      // 0. Cover the page BEFORE anything moves, and give the overlay two frames
+      //    to actually paint — resizing the card under an overlay that hasn't
+      //    rendered yet is exactly the flash this is here to prevent.
+      setShowCaptureOverlay(true);
+      await nextFrame();
+      await nextFrame();
+
+      // 1. Make sure the template(s) have finished measuring before we touch anything
       await waitForLayoutReady();
 
-      // 1. Remove scale transforms so html2canvas captures at natural 450px layout
+      // 2. Drop the scale so html2canvas sees the card at its natural size
       removeScaleForCapture();
 
       // 2. Wait for layout to settle after transform removal
@@ -883,7 +929,9 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       // 5. Turn off capturing and restore scale transforms, whether we succeeded or not
       setIsCapturing(false);
       setIsCapturing2(false);
+      // Put the card back before uncovering the slot, never the other way round.
       restoreScaleAfterCapture();
+      setShowCaptureOverlay(false);
     }
   }, [runner, webConfig2, cardScale, card1Height, card2Height]);
 
@@ -1512,6 +1560,8 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
           }
         />
       )}
+      <CardCaptureOverlay show={showCaptureOverlay} isThai={runner.nationality?.toLowerCase() === 'thai'} />
+
       {showPhotoCropper && pendingPhotoImage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
           <div className="w-full max-w-lg rounded-lg bg-gray-800 p-4 shadow-2xl">

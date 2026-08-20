@@ -739,6 +739,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
 
               return (
                   <img
+                    key={field.id}
                     src={profileUrl}
                     alt="Profile"
                     style={{
