@@ -11,12 +11,21 @@ interface TemplateProps {
   onLayoutReady?: () => void;
   containerRefCallback?: (ref: HTMLDivElement | null) => void;
   isCapturing?: boolean;
+  // The runner's own photo, drawn into the template's 'profile_picture' slot.
+  // Its presence is also what switches the card to the cut-out artwork.
   profilePictureUrl?: string;
-  // Darkens the background before the fields are drawn. Meant for the case
-  // where a runner's own photo has replaced the event artwork, which no longer
-  // guarantees a readable surface under the bib number and QR code.
-  backgroundOverlayOpacity?: number;
 }
+
+// Shown in the photo slot while no real photo exists — inline so the editor
+// never depends on an outside placeholder service to draw the box.
+const PHOTO_SLOT_PLACEHOLDER =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">' +
+    '<rect width="200" height="200" fill="#9ca3af"/>' +
+    '<text x="100" y="105" font-family="sans-serif" font-size="16" fill="#f3f4f6" text-anchor="middle">PHOTO</text>' +
+    '</svg>'
+  );
 
 // Helper to fill templates
 const fillTemplate = (template: string, runner: Runner) => {
@@ -26,7 +35,13 @@ const fillTemplate = (template: string, runner: Runner) => {
   });
 };
 
-const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false, profilePictureUrl, backgroundOverlayOpacity = 0 }) => {
+const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false, profilePictureUrl }) => {
+  // Two artworks per template: the plain one, and a cut-out one used once the
+  // runner has a photo to show through it.
+  const backgroundUrl = (profilePictureUrl && config?.backgroundImageUrlWithPhoto)
+    ? config.backgroundImageUrlWithPhoto
+    : config?.backgroundImageUrl;
+
   const containerRef = useRef<HTMLDivElement>(null);
   const [pixelPositions, setPixelPositions] = useState<{ [key: string]: { left: number; top: number } }>({});
 
@@ -425,12 +440,12 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
 
     timeoutIds.push(setTimeout(measureAllFields, 150)); // เพิ่ม delay เป็น 150ms
 
-    if (config.backgroundImageUrl) {
+    if (backgroundUrl) {
       const img = new Image();
       img.onload = () => {
         imageTimeoutIds.push(setTimeout(measureAllFields, 100));
       };
-      img.src = config.backgroundImageUrl;
+      img.src = backgroundUrl;
     }
 
     return () => {
@@ -440,7 +455,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
         clearTimeout(layoutAdjustmentTimeoutRef.current);
       }
     };
-  }, [config.fields, config.backgroundImageUrl, runner, scheduleLayoutReady]);
+  }, [config.fields, backgroundUrl, runner, scheduleLayoutReady]);
 
   // วัดความกว้างและปรับให้ขึ้นบรรทัดใหม่ (Wrap Mode)
   useEffect(() => {
@@ -591,12 +606,12 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
 
     timeoutIds.push(setTimeout(measureAllFields, 100));
 
-    if (config.backgroundImageUrl) {
+    if (backgroundUrl) {
       const img = new Image();
       img.onload = () => {
         imageTimeoutIds.push(setTimeout(measureAllFields, 100));
       };
-      img.src = config.backgroundImageUrl;
+      img.src = backgroundUrl;
     }
 
     return () => {
@@ -606,7 +621,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
         clearTimeout(layoutAdjustmentTimeoutRef.current);
       }
     };
-  }, [config.fields, config.backgroundImageUrl, runner, scheduleLayoutReady]);
+  }, [config.fields, backgroundUrl, runner, scheduleLayoutReady]);
 
   return (
     <>
@@ -618,9 +633,9 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
       >
         {/* Background Image - Controls Aspect Ratio */}
         <div style={{ overflow: 'hidden', width: '100%' }}>
-          {config.backgroundImageUrl ? (
+          {backgroundUrl ? (
             <img
-              src={config.backgroundImageUrl}
+              src={backgroundUrl}
               alt="Pass Background"
               className="w-full h-auto block pointer-events-none"
               style={{
@@ -632,19 +647,6 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
             <div style={{ height: '600px', width: '100%' }} />
           )}
         </div>
-
-        {/* Readability scrim, drawn over the background but under every field.
-            Off (0) for the event artwork, which already reserves flat areas for
-            the text; on only when a runner photo has taken the artwork's place. */}
-        {backgroundOverlayOpacity > 0 && (
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              backgroundColor: `rgba(0, 0, 0, ${backgroundOverlayOpacity})`,
-              borderRadius: '20px',
-            }}
-          />
-        )}
 
         {/* Dynamic Fields Overlay */}
         <div className="absolute inset-0" style={{ overflow: 'visible' }} translate="no">
@@ -733,9 +735,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
               const profileHeight = field.profileHeight || 100;
               const profileShape = field.profileShape || 'circle'; // Default to circle
               // Use profilePictureUrl prop if provided (from cropped image), otherwise use placeholder
-              const profileUrl = profilePictureUrl || field.profilePicture || `https://via.placeholder.com/${profileWidth}x${profileHeight}?text=Profile`;
-
-              const borderRadius = profileShape === 'circle' ? '50%' : '0';
+              const profileUrl = profilePictureUrl || field.profilePicture || PHOTO_SLOT_PLACEHOLDER;
 
               return (
                   <img
@@ -748,7 +748,13 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
                       transform: 'translate(-50%, -50%)',
                       width: `${profileWidth}px`,
                       height: `${profileHeight}px`,
+                      // Behind the artwork on purpose: the photo shows through
+                      // the cut-out, so the artwork keeps its logo and text bar
+                      // on top of it.
                       zIndex: -1,
+                      // Fill the slot without distorting the runner's photo when
+                      // its aspect ratio doesn't match the slot exactly.
+                      objectFit: 'cover',
                       borderRadius: profileShape === 'circle' ? '50%' : '0',
                     }}
                   />

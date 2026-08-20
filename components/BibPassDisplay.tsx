@@ -24,21 +24,14 @@ const LIFF_REGISTER_EDGE_FUNCTION_URL = '/functions/v1/liff-register-runner';
 const LIFF_SEND_IMAGE_EDGE_FUNCTION_URL = '/functions/v1/liff-send-bibpass-image';
 const UPLOAD_BACKGROUND_EDGE_FUNCTION_URL = '/functions/v1/upload-runner-background';
 
-// --- Runner-supplied card background -------------------------------------
+// --- Runner-supplied photo -----------------------------------------------
 
-// Replacing the event artwork means the bib number, name and QR code end up on
-// whatever the runner photographed, so darken the photo first. Set to 0 to drop
-// the scrim entirely; it is only ever applied to a runner's own image, never to
-// the event artwork.
-const CUSTOM_BACKGROUND_OVERLAY_OPACITY = 0.25;
-// The card is only ever displayed 450px wide, so the artwork's own 1200px is
-// already generous. Cap there rather than storing a phone camera's full frame.
-const CUSTOM_BACKGROUND_MAX_WIDTH = 1200;
-const CUSTOM_BACKGROUND_JPEG_QUALITY = 0.85;
-// Fallback shape for the cropper, used only until the event artwork has loaded
-// and reported its real one. Matches the current 1200x1800 templates.
-const CUSTOM_BACKGROUND_FALLBACK_ASPECT = 2 / 3;
-const CUSTOM_BACKGROUND_ACCEPTED_TYPES = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
+// The photo is stored at twice the size of the slot it fills: the card is laid
+// out 450px wide but html2canvas captures it at scale 2, so storing it 1:1
+// would leave the slot visibly soft in the saved image.
+const RUNNER_PHOTO_EXPORT_SCALE = 2;
+const RUNNER_PHOTO_JPEG_QUALITY = 0.85;
+const RUNNER_PHOTO_ACCEPTED_TYPES = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
 
 // Small artificial delay so each step is actually visible in the overlay
 // during dev-mock runs, instead of flashing past instantly.
@@ -219,17 +212,15 @@ const loadImage = (src: string): Promise<HTMLImageElement> =>
   });
 
 /**
- * Re-encodes the runner's crop at the event artwork's own pixel size.
+ * Re-encodes the runner's crop at the size of the template's photo slot.
  *
- * Every field on the card is positioned as a percentage of the container, and
- * the container's height comes from the background image — so an image of a
- * different shape would move every name, bib number and QR code on the card.
- * Forcing the output to the artwork's exact dimensions is what keeps the
- * layout identical to the one the designer laid out. The JPEG re-encode is the
- * other half of the job: it keeps the captured card small enough to clear
- * LINE's 1 MB limit once the auto-send pipeline picks it up.
+ * The slot has fixed pixel dimensions, so cropping to its exact shape here is
+ * what stops the photo being cropped a second time by object-fit at display
+ * time — the runner sees on the card exactly the framing they chose. The JPEG
+ * re-encode is the other half of the job: it keeps the captured card small
+ * enough to clear LINE's 1 MB limit once the auto-send pipeline picks it up.
  */
-const renderCroppedBackground = async (
+const renderCroppedPhoto = async (
   imageSrc: string,
   pixelCrop: Area,
   targetWidth: number,
@@ -258,7 +249,7 @@ const renderCroppedBackground = async (
   );
 
   const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, 'image/jpeg', CUSTOM_BACKGROUND_JPEG_QUALITY),
+    canvas.toBlob(resolve, 'image/jpeg', RUNNER_PHOTO_JPEG_QUALITY),
   );
   if (!blob) throw new Error('Create Blob Failed');
   return blob;
@@ -303,7 +294,7 @@ const clearRunnerBackground = async (accessKey: string): Promise<void> => {
  * ourselves first sidesteps the question entirely. Returns null if the fetch
  * fails so the caller can fall back to the event artwork.
  */
-const toLocalBackgroundUrl = async (url: string): Promise<string | null> => {
+const toLocalPhotoUrl = async (url: string): Promise<string | null> => {
   try {
     const response = await fetch(url, { mode: 'cors', cache: 'reload' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -356,21 +347,20 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
   // --- Runner-supplied card background (Card 1 only) ---
   // What the card actually renders: a blob URL, never the remote one — see
-  // toLocalBackgroundUrl for why. null means "use the event artwork".
-  const [customBackgroundSrc, setCustomBackgroundSrc] = useState<string | null>(null);
-  const [isCustomBackgroundResolving, setIsCustomBackgroundResolving] = useState(false);
-  const [cardArtworkSize, setCardArtworkSize] = useState<{ width: number; height: number } | null>(null);
-  const [pendingBackgroundImage, setPendingBackgroundImage] = useState<string | null>(null);
-  const [showBackgroundCropper, setShowBackgroundCropper] = useState(false);
-  const [backgroundCrop, setBackgroundCrop] = useState<Point>({ x: 0, y: 0 });
-  const [backgroundZoom, setBackgroundZoom] = useState(1);
-  const [backgroundCropPixels, setBackgroundCropPixels] = useState<Area | null>(null);
-  const [isSavingBackground, setIsSavingBackground] = useState(false);
-  const [backgroundError, setBackgroundError] = useState<string | null>(null);
-  const customBackgroundObjectUrlRef = useRef<string | null>(null);
+  // toLocalPhotoUrl for why. null means "use the event artwork".
+  const [runnerPhotoSrc, setRunnerPhotoSrc] = useState<string | null>(null);
+  const [isRunnerPhotoResolving, setIsRunnerPhotoResolving] = useState(false);
+  const [pendingPhotoImage, setPendingPhotoImage] = useState<string | null>(null);
+  const [showPhotoCropper, setShowPhotoCropper] = useState(false);
+  const [photoCrop, setPhotoCrop] = useState<Point>({ x: 0, y: 0 });
+  const [photoZoom, setPhotoZoom] = useState(1);
+  const [photoCropPixels, setPhotoCropPixels] = useState<Area | null>(null);
+  const [isSavingPhoto, setIsSavingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const runnerPhotoObjectUrlRef = useRef<string | null>(null);
   // The stored URL the blob currently on screen was made from, so re-rendering
   // (or our own write-back after an upload) doesn't re-download it.
-  const resolvedBackgroundUrlRef = useRef<string | null>(null);
+  const resolvedPhotoUrlRef = useRef<string | null>(null);
 
   const [isAddingToGoogleWallet, setIsAddingToGoogleWallet] = useState(false);
   const [isAddingToAppleWallet, setIsAddingToAppleWallet] = useState(false);
@@ -607,134 +597,134 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
   // --- Runner-supplied card background -------------------------------------
 
-  const applyCustomBackgroundObjectUrl = useCallback((next: string | null) => {
-    if (customBackgroundObjectUrlRef.current) {
-      URL.revokeObjectURL(customBackgroundObjectUrlRef.current);
+  const applyRunnerPhotoObjectUrl = useCallback((next: string | null) => {
+    if (runnerPhotoObjectUrlRef.current) {
+      URL.revokeObjectURL(runnerPhotoObjectUrlRef.current);
     }
-    customBackgroundObjectUrlRef.current = next;
-    setCustomBackgroundSrc(next);
+    runnerPhotoObjectUrlRef.current = next;
+    setRunnerPhotoSrc(next);
   }, []);
 
   useEffect(() => () => {
-    if (customBackgroundObjectUrlRef.current) {
-      URL.revokeObjectURL(customBackgroundObjectUrlRef.current);
-      customBackgroundObjectUrlRef.current = null;
+    if (runnerPhotoObjectUrlRef.current) {
+      URL.revokeObjectURL(runnerPhotoObjectUrlRef.current);
+      runnerPhotoObjectUrlRef.current = null;
     }
   }, []);
 
-  // The crop has to come back shaped exactly like the artwork it replaces, so
-  // ask the artwork for its own dimensions rather than assuming a ratio.
-  useEffect(() => {
-    const artworkUrl = webConfig.backgroundImageUrl;
-    if (!artworkUrl) {
-      setCardArtworkSize(null);
-      return;
-    }
+  // The template's photo slot decides everything about the upload: the shape of
+  // the crop, the size we store, and whether the feature is offered at all. A
+  // template with no 'profile_picture' field has nowhere to put a photo, so it
+  // simply doesn't get the control.
+  const photoField = useMemo(
+    () => webConfig.fields?.find((f) => f.key === 'profile_picture') || null,
+    [webConfig.fields],
+  );
 
-    let cancelled = false;
-    loadImage(artworkUrl)
-      .then((img) => {
-        if (!cancelled) setCardArtworkSize({ width: img.naturalWidth, height: img.naturalHeight });
-      })
-      .catch(() => {
-        if (!cancelled) setCardArtworkSize(null);
-      });
+  // Same 100px defaults BibPassTemplate draws the slot at, so the crop shape
+  // always matches what ends up on the card — including for a slot whose size
+  // the admin never explicitly set.
+  const photoSlotSize = useMemo(() => {
+    if (!photoField) return null;
+    return {
+      width: photoField.profileWidth || 100,
+      height: photoField.profileHeight || 100,
+    };
+  }, [photoField]);
 
-    return () => { cancelled = true; };
-  }, [webConfig.backgroundImageUrl]);
+  const photoAspect = photoSlotSize ? photoSlotSize.width / photoSlotSize.height : 1;
 
-  const cardAspect = cardArtworkSize && cardArtworkSize.height > 0
-    ? cardArtworkSize.width / cardArtworkSize.height
-    : CUSTOM_BACKGROUND_FALLBACK_ASPECT;
-
-  const backgroundTargetSize = useMemo(() => {
-    const width = Math.min(cardArtworkSize?.width || CUSTOM_BACKGROUND_MAX_WIDTH, CUSTOM_BACKGROUND_MAX_WIDTH);
-    return { width, height: Math.round(width / cardAspect) };
-  }, [cardArtworkSize, cardAspect]);
+  const photoTargetSize = useMemo(() => {
+    const slot = photoSlotSize || { width: 300, height: 300 };
+    return {
+      width: Math.round(slot.width * RUNNER_PHOTO_EXPORT_SCALE),
+      height: Math.round(slot.height * RUNNER_PHOTO_EXPORT_SCALE),
+    };
+  }, [photoSlotSize]);
 
   // Pull a previously saved background down into a blob URL once the runner
   // loads. Skipped when the stored URL is one we already hold locally — which
   // is what stops our own write-back after an upload from re-downloading it.
   useEffect(() => {
     const storedUrl = runner?.custom_background_url || null;
-    if (storedUrl === resolvedBackgroundUrlRef.current) return;
+    if (storedUrl === resolvedPhotoUrlRef.current) return;
 
     if (!storedUrl) {
-      resolvedBackgroundUrlRef.current = null;
-      applyCustomBackgroundObjectUrl(null);
-      setIsCustomBackgroundResolving(false);
+      resolvedPhotoUrlRef.current = null;
+      applyRunnerPhotoObjectUrl(null);
+      setIsRunnerPhotoResolving(false);
       return;
     }
 
     let cancelled = false;
-    setIsCustomBackgroundResolving(true);
+    setIsRunnerPhotoResolving(true);
 
-    toLocalBackgroundUrl(storedUrl).then((localUrl) => {
+    toLocalPhotoUrl(storedUrl).then((localUrl) => {
       if (cancelled) {
         if (localUrl) URL.revokeObjectURL(localUrl);
         return;
       }
       // On failure fall back to the event artwork rather than a broken card.
-      resolvedBackgroundUrlRef.current = localUrl ? storedUrl : null;
-      applyCustomBackgroundObjectUrl(localUrl);
-      setIsCustomBackgroundResolving(false);
+      resolvedPhotoUrlRef.current = localUrl ? storedUrl : null;
+      applyRunnerPhotoObjectUrl(localUrl);
+      setIsRunnerPhotoResolving(false);
     });
 
     return () => { cancelled = true; };
-  }, [runner?.custom_background_url, applyCustomBackgroundObjectUrl]);
+  }, [runner?.custom_background_url, applyRunnerPhotoObjectUrl]);
 
-  const handleBackgroundFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = ''; // so re-picking the same file still fires onChange
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      setBackgroundError('กรุณาเลือกไฟล์รูปภาพ');
+      setPhotoError('กรุณาเลือกไฟล์รูปภาพ');
       return;
     }
 
-    setBackgroundError(null);
+    setPhotoError(null);
     const reader = new FileReader();
     reader.onload = (event) => {
       const result = event.target?.result as string;
       if (!result) return;
-      setPendingBackgroundImage(result);
-      setBackgroundCrop({ x: 0, y: 0 });
-      setBackgroundZoom(1);
-      setBackgroundCropPixels(null);
-      setShowBackgroundCropper(true);
+      setPendingPhotoImage(result);
+      setPhotoCrop({ x: 0, y: 0 });
+      setPhotoZoom(1);
+      setPhotoCropPixels(null);
+      setShowPhotoCropper(true);
     };
-    reader.onerror = () => setBackgroundError('อ่านไฟล์รูปภาพไม่สำเร็จ');
+    reader.onerror = () => setPhotoError('อ่านไฟล์รูปภาพไม่สำเร็จ');
     reader.readAsDataURL(file);
   }, []);
 
-  const closeBackgroundCropper = useCallback(() => {
-    setShowBackgroundCropper(false);
-    setPendingBackgroundImage(null);
-    setBackgroundCropPixels(null);
+  const closePhotoCropper = useCallback(() => {
+    setShowPhotoCropper(false);
+    setPendingPhotoImage(null);
+    setPhotoCropPixels(null);
   }, []);
 
-  const handleBackgroundCropConfirm = useCallback(async () => {
-    if (!pendingBackgroundImage || !backgroundCropPixels || !accessKey) return;
+  const handlePhotoCropConfirm = useCallback(async () => {
+    if (!pendingPhotoImage || !photoCropPixels || !accessKey) return;
 
-    setIsSavingBackground(true);
-    setBackgroundError(null);
+    setIsSavingPhoto(true);
+    setPhotoError(null);
     try {
-      const blob = await renderCroppedBackground(
-        pendingBackgroundImage,
-        backgroundCropPixels,
-        backgroundTargetSize.width,
-        backgroundTargetSize.height,
+      const blob = await renderCroppedPhoto(
+        pendingPhotoImage,
+        photoCropPixels,
+        photoTargetSize.width,
+        photoTargetSize.height,
       );
       const publicUrl = await uploadRunnerBackground(blob, accessKey);
 
       // Show the bytes we just encoded instead of re-fetching what we uploaded.
-      resolvedBackgroundUrlRef.current = publicUrl;
-      applyCustomBackgroundObjectUrl(URL.createObjectURL(blob));
+      resolvedPhotoUrlRef.current = publicUrl;
+      applyRunnerPhotoObjectUrl(URL.createObjectURL(blob));
       setRunner((prev) => (prev ? { ...prev, custom_background_url: publicUrl } : prev));
-      setShowBackgroundCropper(false);
-      setPendingBackgroundImage(null);
-      setBackgroundCropPixels(null);
+      setShowPhotoCropper(false);
+      setPendingPhotoImage(null);
+      setPhotoCropPixels(null);
 
       logUserActivity({
         activity_type: 'change_background',
@@ -743,7 +733,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       }).catch((logErr) => console.warn('Failed to log background change:', logErr));
     } catch (err) {
       console.error('Failed to save background:', err);
-      setBackgroundError(err instanceof Error ? err.message : 'บันทึกรูปพื้นหลังไม่สำเร็จ');
+      setPhotoError(err instanceof Error ? err.message : 'บันทึกรูปพื้นหลังไม่สำเร็จ');
 
       logUserActivity({
         activity_type: 'change_background',
@@ -752,19 +742,19 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         error_message: err instanceof Error ? err.message : 'Failed to save background',
       }).catch((logErr) => console.warn('Failed to log background change:', logErr));
     } finally {
-      setIsSavingBackground(false);
+      setIsSavingPhoto(false);
     }
-  }, [pendingBackgroundImage, backgroundCropPixels, accessKey, backgroundTargetSize, applyCustomBackgroundObjectUrl, runner?.id]);
+  }, [pendingPhotoImage, photoCropPixels, accessKey, photoTargetSize, applyRunnerPhotoObjectUrl, runner?.id]);
 
-  const handleBackgroundReset = useCallback(async () => {
+  const handlePhotoReset = useCallback(async () => {
     if (!accessKey) return;
 
-    setIsSavingBackground(true);
-    setBackgroundError(null);
+    setIsSavingPhoto(true);
+    setPhotoError(null);
     try {
       await clearRunnerBackground(accessKey);
-      resolvedBackgroundUrlRef.current = null;
-      applyCustomBackgroundObjectUrl(null);
+      resolvedPhotoUrlRef.current = null;
+      applyRunnerPhotoObjectUrl(null);
       setRunner((prev) => (prev ? { ...prev, custom_background_url: null } : prev));
 
       logUserActivity({
@@ -774,16 +764,11 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       }).catch((logErr) => console.warn('Failed to log background reset:', logErr));
     } catch (err) {
       console.error('Failed to reset background:', err);
-      setBackgroundError(err instanceof Error ? err.message : 'คืนค่าพื้นหลังไม่สำเร็จ');
+      setPhotoError(err instanceof Error ? err.message : 'คืนค่าพื้นหลังไม่สำเร็จ');
     } finally {
-      setIsSavingBackground(false);
+      setIsSavingPhoto(false);
     }
-  }, [accessKey, applyCustomBackgroundObjectUrl, runner?.id]);
-
-  // Card 1 only — Card 2's artwork is left alone.
-  const card1Config = useMemo(() => (
-    customBackgroundSrc ? { ...webConfig, backgroundImageUrl: customBackgroundSrc } : webConfig
-  ), [webConfig, customBackgroundSrc]);
+  }, [accessKey, applyRunnerPhotoObjectUrl, runner?.id]);
 
   // Shared capture logic (html2canvas), used by both the manual "Save as Image"
   // button and the LIFF auto-send pipeline. Not rewritten — extracted as-is
@@ -1128,11 +1113,11 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     if (!autoSend || !runner || liffFallbackToManual) return;
     // Hold off while a saved background is still downloading, or the runner
     // would be sent a card carrying the event artwork it was meant to replace.
-    if (isCustomBackgroundResolving) return;
+    if (isRunnerPhotoResolving) return;
     if (liffPipelineStartedRef.current) return;
     liffPipelineStartedRef.current = true;
     runLiffAutoSendPipeline();
-  }, [autoSend, runner, liffFallbackToManual, isCustomBackgroundResolving, runLiffAutoSendPipeline]);
+  }, [autoSend, runner, liffFallbackToManual, isRunnerPhotoResolving, runLiffAutoSendPipeline]);
 
   const handleAddPassportToWallet = useCallback(async (walletType: 'google' | 'apple') => {
     setWalletError(null);
@@ -1522,7 +1507,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
           }
         />
       )}
-      {showBackgroundCropper && pendingBackgroundImage && (
+      {showPhotoCropper && pendingPhotoImage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
           <div className="w-full max-w-lg rounded-lg bg-gray-800 p-4 shadow-2xl">
             <h3 className="mb-1 text-lg font-bold text-white">
@@ -1530,20 +1515,20 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
             </h3>
             <p className="mb-3 text-xs text-gray-400">
               {runner.nationality?.toLowerCase() === 'thai'
-                ? 'ลากเพื่อเลื่อน และใช้แถบเลื่อนเพื่อซูม กรอบนี้คือขนาดจริงของการ์ด'
-                : 'Drag to move, use the slider to zoom. This frame is the card’s real shape.'}
+                ? 'ลากเพื่อเลื่อน และใช้แถบเลื่อนเพื่อซูม กรอบนี้คือพื้นที่รูปบนการ์ดจริง'
+                : 'Drag to move, use the slider to zoom. This frame is the photo area on the card.'}
             </p>
 
             <div className="relative h-[55vh] w-full overflow-hidden rounded bg-black">
               <Cropper
-                image={pendingBackgroundImage}
-                crop={backgroundCrop}
-                zoom={backgroundZoom}
-                aspect={cardAspect}
+                image={pendingPhotoImage}
+                crop={photoCrop}
+                zoom={photoZoom}
+                aspect={photoAspect}
                 restrictPosition
-                onCropChange={setBackgroundCrop}
-                onZoomChange={setBackgroundZoom}
-                onCropComplete={(_croppedArea: Area, croppedAreaPixels: Area) => setBackgroundCropPixels(croppedAreaPixels)}
+                onCropChange={setPhotoCrop}
+                onZoomChange={setPhotoZoom}
+                onCropComplete={(_croppedArea: Area, croppedAreaPixels: Area) => setPhotoCropPixels(croppedAreaPixels)}
               />
             </div>
 
@@ -1556,29 +1541,29 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                 min={1}
                 max={3}
                 step={0.1}
-                value={backgroundZoom}
-                onChange={(e) => setBackgroundZoom(Number(e.target.value))}
+                value={photoZoom}
+                onChange={(e) => setPhotoZoom(Number(e.target.value))}
                 className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-700 accent-blue-600"
               />
             </div>
 
-            {backgroundError && <p className="mt-3 text-sm text-red-400">{backgroundError}</p>}
+            {photoError && <p className="mt-3 text-sm text-red-400">{photoError}</p>}
 
             <div className="mt-4 flex gap-2">
               <Button
-                onClick={closeBackgroundCropper}
-                disabled={isSavingBackground}
+                onClick={closePhotoCropper}
+                disabled={isSavingPhoto}
                 className="flex-1 bg-gray-600 hover:bg-gray-700"
               >
                 {runner.nationality?.toLowerCase() === 'thai' ? 'ยกเลิก' : 'Cancel'}
               </Button>
               <Button
-                onClick={handleBackgroundCropConfirm}
-                disabled={isSavingBackground || !backgroundCropPixels}
-                loading={isSavingBackground}
+                onClick={handlePhotoCropConfirm}
+                disabled={isSavingPhoto || !photoCropPixels}
+                loading={isSavingPhoto}
                 className="flex-1"
               >
-                {isSavingBackground
+                {isSavingPhoto
                   ? (runner.nationality?.toLowerCase() === 'thai' ? 'กำลังบันทึก...' : 'Saving...')
                   : (runner.nationality?.toLowerCase() === 'thai' ? 'ใช้รูปนี้' : 'Use this image')}
               </Button>
@@ -1608,8 +1593,8 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
               <div ref={passContainerRef}>
                 <BibPassTemplate
                   runner={runner}
-                  config={card1Config}
-                  backgroundOverlayOpacity={customBackgroundSrc ? CUSTOM_BACKGROUND_OVERLAY_OPACITY : 0}
+                  config={webConfig}
+                  profilePictureUrl={runnerPhotoSrc || undefined}
                   qrCodeUrl={bibPassQrCodeUrl}
                   containerRefCallback={(ref) => { templateContainerRef.current = ref; }}
                   isCapturing={isCapturing}
@@ -1687,48 +1672,50 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                   </Button> */}
 
                   {/* Runner-supplied background for Card 1 */}
+                  {photoSlotSize && (
                   <div className="border-t border-gray-700 pt-4">
                     <h3 className="text-base font-semibold mb-1 text-white">
-                      {isThai ? 'เปลี่ยนรูปพื้นหลังการ์ด' : 'Change card background'}
+                      {isThai ? 'ใส่รูปของคุณลงการ์ด' : 'Add your own photo'}
                     </h3>
                     <p className="text-xs text-gray-400 mb-3">
                       {isThai
-                        ? 'เลือกรูปจากเครื่องของคุณมาใช้แทนพื้นหลังของการ์ดใบแรก รูปจะถูกตัดให้พอดีกับขนาดการ์ดโดยอัตโนมัติ'
-                        : 'Pick an image from your device to replace the first card’s background. It will be cropped to fit the card automatically.'}
+                        ? 'เลือกรูปจากเครื่องของคุณมาใส่ในการ์ด แล้วจัดตำแหน่งให้พอดีกับพื้นที่รูปได้'
+                        : 'Pick an image from your device and position it to fit the card’s photo area.'}
                     </p>
 
-                    {backgroundError && <p className="text-red-400 mb-3 text-sm">{backgroundError}</p>}
+                    {photoError && <p className="text-red-400 mb-3 text-sm">{photoError}</p>}
 
                     <label
-                      className={`flex h-11 w-full cursor-pointer items-center justify-center rounded-lg border border-gray-500 bg-gray-700 px-3 text-sm font-medium text-white transition hover:bg-gray-600 ${isSavingBackground ? 'cursor-not-allowed opacity-50' : ''}`}
+                      className={`flex h-11 w-full cursor-pointer items-center justify-center rounded-lg border border-gray-500 bg-gray-700 px-3 text-sm font-medium text-white transition hover:bg-gray-600 ${isSavingPhoto ? 'cursor-not-allowed opacity-50' : ''}`}
                     >
                       {isThai ? 'เลือกรูปจากเครื่อง' : 'Choose an image'}
                       <input
                         type="file"
                         className="hidden"
-                        accept={CUSTOM_BACKGROUND_ACCEPTED_TYPES}
-                        onChange={handleBackgroundFileChange}
-                        disabled={isSavingBackground}
+                        accept={RUNNER_PHOTO_ACCEPTED_TYPES}
+                        onChange={handlePhotoFileChange}
+                        disabled={isSavingPhoto}
                       />
                     </label>
 
-                    {customBackgroundSrc && (
+                    {runnerPhotoSrc && (
                       <button
                         type="button"
-                        onClick={handleBackgroundReset}
-                        disabled={isSavingBackground}
+                        onClick={handlePhotoReset}
+                        disabled={isSavingPhoto}
                         className="mt-2 w-full text-sm text-gray-400 underline transition hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {isThai ? 'คืนค่าพื้นหลังเดิมของงาน' : 'Restore the event background'}
+                        {isThai ? 'ลบรูปของฉันออกจากการ์ด' : 'Remove my photo from the card'}
                       </button>
                     )}
 
-                    {isCustomBackgroundResolving && (
+                    {isRunnerPhotoResolving && (
                       <p className="mt-2 text-xs text-gray-400">
-                        {isThai ? 'กำลังโหลดรูปพื้นหลังของคุณ...' : 'Loading your background...'}
+                        {isThai ? 'กำลังโหลดรูปของคุณ...' : 'Loading your photo...'}
                       </p>
                     )}
                   </div>
+                  )}
 
                   <div className="border-t border-gray-700 pt-4">
                     <h3 className="text-base font-semibold mb-4 text-white text-center">
