@@ -4,6 +4,10 @@ import { Runner, WebPassConfig } from '../types';
 // ค่าคงที่สำหรับการเขยิบ row_no เมื่อ row เป็นค่าว่าง
 const ROW_EMPTY_OFFSET = 12; // px
 
+// Corner radius of the card. The artwork image is rounded by this much, and so
+// is anything drawn behind it, so the two must stay in step.
+const CARD_CORNER_RADIUS = 20; // px
+
 interface TemplateProps {
   runner: Runner;
   config: WebPassConfig;
@@ -642,6 +646,14 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
         ref={containerRef}
         className="w-[450px] relative font-sans text-gray-800 shadow-2xl mx-auto"
         style={{
+          // The artwork rounds its own corners, but the runner's photo sits
+          // behind it as a plain rectangle — so it showed through the corners
+          // the artwork had rounded away. Clip the whole card to the same
+          // radius. Only applied when there is a photo, so cards without one
+          // keep rendering exactly as they always have.
+          ...(profilePictureUrl
+            ? { borderRadius: `${CARD_CORNER_RADIUS}px`, overflow: 'hidden' }
+            : {}),
         }}
       >
         {/* Background Image - Controls Aspect Ratio */}
@@ -652,7 +664,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
               alt="Pass Background"
               className="w-full h-auto block pointer-events-none"
               style={{
-                borderRadius: '20px',
+                borderRadius: `${CARD_CORNER_RADIUS}px`,
                 border: 'transparent',
               }}
             />
@@ -730,7 +742,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
                     transform: 'translate(-50%, -50%)',
                     width: field.imageWidth ? `${field.imageWidth}px` : 'auto',
                     height: field.imageHeight ? `${field.imageHeight}px` : 'auto',
-                    opacity: field.imageOpacity ?? 1,
+                    // opacity: field.imageOpacity ?? 1,
                     objectFit: 'contain',
                     pointerEvents: 'none',
                   }}
@@ -803,7 +815,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
                       // the cut-out, so the artwork keeps its logo and text bar
                       // on top of it.
                       zIndex: -1,
-                      borderRadius: profileShape === 'circle' ? '50%' : '20px',
+                      borderRadius: profileShape === 'circle' ? '50%' : '40px',
                     }}
                   />
               );
