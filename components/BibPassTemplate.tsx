@@ -4,6 +4,10 @@ import { Runner, WebPassConfig } from '../types';
 // ค่าคงที่สำหรับการเขยิบ row_no เมื่อ row เป็นค่าว่าง
 const ROW_EMPTY_OFFSET = 12; // px
 
+// Corner radius of the card. The artwork image is rounded by this much, and so
+// is anything drawn behind it, so the two must stay in step.
+const CARD_CORNER_RADIUS = 20; // px
+
 interface TemplateProps {
   runner: Runner;
   config: WebPassConfig;
@@ -27,12 +31,25 @@ const PHOTO_SLOT_PLACEHOLDER =
     '</svg>'
   );
 
+// ค่าที่ตัวนำเข้าข้อมูลใส่แทนช่องว่าง เป็นแค่ marker ของฝั่ง admin
+// ไม่ใช่ข้อความที่นักวิ่งควรเห็นบนการ์ด จึงถือว่าเป็นค่าว่าง
+const PLACEHOLDER_VALUES = ['n/a', 'not specified'];
+
+const isPlaceholderValue = (value: string) =>
+  PLACEHOLDER_VALUES.includes(value.trim().toLowerCase());
+
+// อ่านค่าจาก runner โดยแปลง null/undefined/placeholder ให้เป็นค่าว่าง
+const getRunnerValue = (runner: Runner, key: string): string => {
+  const val = runner[key as keyof Runner];
+  if (val === undefined || val === null) return '';
+  const str = String(val);
+  return isPlaceholderValue(str) ? '' : str;
+};
+
 // Helper to fill templates
 const fillTemplate = (template: string, runner: Runner) => {
   if (!template) return '';
-  return template.replace(/\{(\w+)\}/g, (match, key) => {
-    return runner[key as keyof Runner] !== undefined && runner[key as keyof Runner] !== null ? String(runner[key as keyof Runner]) : '';
-  });
+  return template.replace(/\{(\w+)\}/g, (match, key) => getRunnerValue(runner, key));
 };
 
 const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false, profilePictureUrl }) => {
@@ -44,6 +61,9 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [pixelPositions, setPixelPositions] = useState<{ [key: string]: { left: number; top: number } }>({});
+  // Natural size of each photo slot's image, learned on load. Needed to size the
+  // photo to cover its slot by hand — see the 'profile_picture' branch below.
+  const [photoNaturalSizes, setPhotoNaturalSizes] = useState<{ [key: string]: { width: number; height: number } }>({});
 
   // Expose container ref to parent
   useEffect(() => {
@@ -236,13 +256,10 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
         if (source === 'custom_text') {
           return field.customText || '';
         }
-        const val = runner[source as keyof Runner];
-        return val !== undefined && val !== null ? String(val) : '';
+        return getRunnerValue(runner, source);
       }).filter((v: string) => v !== '').join(separator);
     } else {
-      let content = '';
-      const val = runner[field.key as keyof Runner];
-      content = val !== undefined && val !== null ? String(val) : '';
+      let content = getRunnerValue(runner, field.key);
       if (field.valueTemplate) {
         content = fillTemplate(field.valueTemplate, runner);
       }
@@ -629,6 +646,14 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
         ref={containerRef}
         className="w-[450px] relative font-sans text-gray-800 shadow-2xl mx-auto"
         style={{
+          // The artwork rounds its own corners, but the runner's photo sits
+          // behind it as a plain rectangle — so it showed through the corners
+          // the artwork had rounded away. Clip the whole card to the same
+          // radius. Only applied when there is a photo, so cards without one
+          // keep rendering exactly as they always have.
+          ...(profilePictureUrl
+            ? { borderRadius: `${CARD_CORNER_RADIUS}px`, overflow: 'hidden' }
+            : {}),
         }}
       >
         {/* Background Image - Controls Aspect Ratio */}
@@ -639,8 +664,8 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
               alt="Pass Background"
               className="w-full h-auto block pointer-events-none"
               style={{
+                borderRadius: `${CARD_CORNER_RADIUS}px`,
                 border: 'transparent',
-                borderRadius: '20px',
               }}
             />
           ) : (
@@ -662,12 +687,10 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
                 if (source === 'custom_text') {
                   return field.customText || '';
                 }
-                const val = runner[source as keyof Runner];
-                return val !== undefined && val !== null ? String(val) : '';
+                return getRunnerValue(runner, source);
               }).filter(v => v !== '').join(separator);
             } else {
-              const val = runner[field.key as keyof Runner];
-              content = val !== undefined && val !== null ? String(val) : '';
+              content = getRunnerValue(runner, field.key);
 
               if (field.valueTemplate) {
                 content = fillTemplate(field.valueTemplate, runner);
@@ -712,13 +735,14 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
                   // applies it to its own clone at capture time. Setting it here
                   // would break plain display of any host without CORS headers.
                   style={{
+                    borderRadius: '20px',
                     position: 'absolute',
                     left: pixelPos ? `${pixelPos.left}px` : `${field.x}%`,
                     top: pixelPos ? `${pixelPos.top}px` : `${field.y}%`,
                     transform: 'translate(-50%, -50%)',
                     width: field.imageWidth ? `${field.imageWidth}px` : 'auto',
                     height: field.imageHeight ? `${field.imageHeight}px` : 'auto',
-                    opacity: field.imageOpacity ?? 1,
+                    // opacity: field.imageOpacity ?? 1,
                     objectFit: 'contain',
                     pointerEvents: 'none',
                   }}
@@ -736,27 +760,62 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
               const profileShape = field.profileShape || 'circle'; // Default to circle
               // Use profilePictureUrl prop if provided (from cropped image), otherwise use placeholder
               const profileUrl = profilePictureUrl || field.profilePicture || PHOTO_SLOT_PLACEHOLDER;
+              // Soft feathered edge: opaque in the center, fades to transparent
+              // near the rim so the photo blends into the artwork cut-out.
+              const softEdgeMask = profileShape === 'circle'
+                ? 'radial-gradient(circle closest-side, #000 62%, transparent 100%)'
+                : [
+                    'linear-gradient(to right, transparent 0%, #000 14%, #000 86%, transparent 100%)',
+                    'linear-gradient(to bottom, transparent 0%, #000 14%, #000 86%, transparent 100%)',
+                  ].join(', ');
+
+              // Cover the slot the long way round, by sizing the photo
+              // ourselves. object-fit does this in one line on screen, but
+              // html2canvas doesn't implement it — it stretches the photo to the
+              // slot instead, so the saved card came out distorted while the
+              // page looked fine. Explicit dimensions are the same in both.
+              const natural = photoNaturalSizes[field.id];
+              const coverScale = natural && natural.width > 0 && natural.height > 0
+                ? Math.max(profileWidth / natural.width, profileHeight / natural.height)
+                : 0;
+              const coverWidth = coverScale ? natural!.width * coverScale : profileWidth;
+              const coverHeight = coverScale ? natural!.height * coverScale : profileHeight;
 
               return (
                   <img
                     key={field.id}
                     src={profileUrl}
                     alt="Profile"
+                    onLoad={(e) => {
+                      const el = e.currentTarget;
+                      const size = { width: el.naturalWidth, height: el.naturalHeight };
+                      setPhotoNaturalSizes((prev) => {
+                        const current = prev[field.id];
+                        if (current && current.width === size.width && current.height === size.height) return prev;
+                        return { ...prev, [field.id]: size };
+                      });
+                    }}
                     style={{
                       position: 'absolute',
                       left: pixelPos ? `${pixelPos.left}px` : `${field.x}%`,
                       top: pixelPos ? `${pixelPos.top}px` : `${field.y}%`,
                       transform: 'translate(-50%, -50%)',
-                      width: `${profileWidth}px`,
-                      height: `${profileHeight}px`,
+                      // Cover dimensions rather than the slot's, so the photo
+                      // keeps its own shape. What trims it back to the slot is
+                      // the artwork's cut-out, not a clipping box: html2canvas
+                      // mis-renders a photo nested inside an overflow:hidden
+                      // wrapper (wrong size and position), while it handles this
+                      // single positioned image correctly.
+                      width: `${coverWidth}px`,
+                      height: `${coverHeight}px`,
+                      // Tailwind's base stylesheet caps images at max-width:100%,
+                      // which would pull the cover width back down.
+                      maxWidth: 'none',
                       // Behind the artwork on purpose: the photo shows through
                       // the cut-out, so the artwork keeps its logo and text bar
                       // on top of it.
                       zIndex: -1,
-                      // Fill the slot without distorting the runner's photo when
-                      // its aspect ratio doesn't match the slot exactly.
-                      objectFit: 'cover',
-                      borderRadius: profileShape === 'circle' ? '50%' : '0',
+                      borderRadius: profileShape === 'circle' ? '50%' : '40px',
                     }}
                   />
               );
@@ -814,7 +873,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
             } else if (field.toFitType === 'fixed') {
               whiteSpace = 'nowrap';
             }
-            if (displayContent === 'N/A') {
+            if (isPlaceholderValue(displayContent)) {
               displayContent = '';
             }
             return (
