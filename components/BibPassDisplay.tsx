@@ -30,6 +30,11 @@ const UPLOAD_BACKGROUND_EDGE_FUNCTION_URL = '/functions/v1/upload-runner-backgro
 // out 450px wide but html2canvas captures it at scale 2, so storing it 1:1
 // would leave the slot visibly soft in the saved image.
 const RUNNER_PHOTO_EXPORT_SCALE = 2;
+// The runner always crops a square, whatever shape the template's slot is.
+// object-fit: cover then trims the square to the slot, so a slot that isn't
+// square loses the edges of what the runner framed — keep template slots square
+// unless that trim is intended.
+const RUNNER_PHOTO_CROP_ASPECT = 1;
 const RUNNER_PHOTO_JPEG_QUALITY = 0.85;
 const RUNNER_PHOTO_ACCEPTED_TYPES = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
 
@@ -632,14 +637,14 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     };
   }, [photoField]);
 
-  const photoAspect = photoSlotSize ? photoSlotSize.width / photoSlotSize.height : 1;
+  const photoAspect = RUNNER_PHOTO_CROP_ASPECT;
 
+  // Square, sized off the slot's longer side so neither dimension of the slot
+  // is ever filled by an upscaled image.
   const photoTargetSize = useMemo(() => {
     const slot = photoSlotSize || { width: 300, height: 300 };
-    return {
-      width: Math.round(slot.width * RUNNER_PHOTO_EXPORT_SCALE),
-      height: Math.round(slot.height * RUNNER_PHOTO_EXPORT_SCALE),
-    };
+    const side = Math.round(Math.max(slot.width, slot.height) * RUNNER_PHOTO_EXPORT_SCALE);
+    return { width: side, height: side };
   }, [photoSlotSize]);
 
   // Pull a previously saved background down into a blob URL once the runner
