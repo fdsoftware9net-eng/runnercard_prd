@@ -1068,6 +1068,7 @@ const BibConfig2Page: React.FC = () => {
                                     <BibPassTemplate
                                         runner={WEB_PREVIEW_RUNNER}
                                         config={webConfig}
+                                        showEmptyPhotoSlot
                                         qrCodeUrl="https://via.placeholder.com/150?text=QR"
                                     />
 
