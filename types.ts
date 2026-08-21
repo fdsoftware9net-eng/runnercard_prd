@@ -268,6 +268,9 @@ export interface PassField {
   y: number; // Percentage (0-100)
   fontSize: number; // px (relative to base size)
   color: string;
+  // For 'qr_code': the colour the QR modules are drawn in. Left unset on older
+  // templates, which were always rendered white, so white stays the default.
+  qrColor?: string;
   fontWeight: 'normal' | 'bold' | '800';
   textAlign: 'left' | 'center' | 'right';
   fontFamily?: 'LINESeedSansTH' | 'Uniform' | 'Uniform Condensed' | 'Uniform Extra Condensed' | 'FC SaveSpace' | 'GreenKingsWood' | 'sans-serif'; // Font family for this field

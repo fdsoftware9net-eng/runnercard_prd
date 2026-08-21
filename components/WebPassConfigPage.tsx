@@ -8,6 +8,7 @@ import LoadingSpinner from './LoadingSpinner';
 import BibPassTemplate from './BibPassTemplate';
 import Select from './Select';
 import { DEFAULT_CONFIG, RUNNER_COLUMNS } from '../defaults';
+import { DEFAULT_QR_COLOR, generateQrCodeDataUrl, getQrColorFromConfig } from '../services/bibPassService';
 import { v4 as uuidv4 } from 'uuid';
 
 const WEB_PREVIEW_RUNNER_VIP = {
@@ -181,6 +182,17 @@ const WebPassConfigPage: React.FC = () => {
     const [previewWithPhoto, setPreviewWithPhoto] = useState(false);
     const previewRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState<number>(500); // Default to 500px
+    const [previewQrCodeUrl, setPreviewQrCodeUrl] = useState<string>('');
+
+    // Render the preview QR in the colour the template asks for, so the picker
+    // shows the real result instead of a stand-in image.
+    const previewQrColor = getQrColorFromConfig(webConfig);
+    useEffect(() => {
+        let cancelled = false;
+        generateQrCodeDataUrl(WEB_PREVIEW_RUNNER_VIP.qr, WEB_PREVIEW_RUNNER_VIP.colour_sign, previewQrColor)
+            .then(url => { if (!cancelled) setPreviewQrCodeUrl(url); });
+        return () => { cancelled = true; };
+    }, [previewQrColor]);
 
     const fetchConfig = useCallback(async () => {
         setLoading(true);
@@ -923,14 +935,25 @@ const WebPassConfigPage: React.FC = () => {
                                     </>
                                 )}
                                 {selectedField.key === 'qr_code' && (
-                                    <Input
-                                        id="qrSize"
-                                        name="fontSize"
-                                        label="Size Scale (approx px/4)"
-                                        type="number"
-                                        value={selectedField.fontSize}
-                                        onChange={(e) => updateField(selectedField.id, { fontSize: Number(e.target.value) })}
-                                    />
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <Input
+                                            id="qrSize"
+                                            name="fontSize"
+                                            label="Size Scale (approx px/4)"
+                                            type="number"
+                                            value={selectedField.fontSize}
+                                            onChange={(e) => updateField(selectedField.id, { fontSize: Number(e.target.value) })}
+                                        />
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-300 mb-1">QR Color</label>
+                                            <input
+                                                type="color"
+                                                value={selectedField.qrColor || DEFAULT_QR_COLOR}
+                                                onChange={(e) => updateField(selectedField.id, { qrColor: e.target.value })}
+                                                className="h-10 w-full border-0 p-0 rounded cursor-pointer"
+                                            />
+                                        </div>
+                                    </div>
                                 )}
 
                                 {selectedField.key === 'profile_picture' && (
@@ -1207,7 +1230,7 @@ const WebPassConfigPage: React.FC = () => {
                                         runner={WEB_PREVIEW_RUNNER_VIP}
                                         config={webConfig}
                                         showEmptyPhotoSlot
-                                        qrCodeUrl="https://via.placeholder.com/150?text=QR"
+                                        qrCodeUrl={previewQrCodeUrl}
                                         // Feeding a sample photo is what switches the preview to the
                                         // cut-out artwork, so the slot can be lined up against the
                                         // artwork it actually shows through.
