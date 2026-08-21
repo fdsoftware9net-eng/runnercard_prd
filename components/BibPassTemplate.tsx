@@ -251,6 +251,14 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
 
   // วัดความกว้างของ div ที่ให้ปรับขนาด (Scale Mode)
   useEffect(() => {
+    // Never re-measure mid-capture. A re-run starts by resetting every field to
+    // its configured size and then walks the size back down one pixel per
+    // frame, so a capture landing in that window photographs text that is too
+    // big. The sizes are already settled by the time capture starts — the
+    // parent waits for onLayoutReady before it begins — so freezing here costs
+    // nothing and removes the race entirely.
+    if (isCapturing) return;
+
     const scaleToFitFields = config.fields?.filter(f => f.toFitType === 'scale') || [];
     if (scaleToFitFields.length === 0) return;
 
@@ -438,10 +446,13 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
         clearTimeout(layoutAdjustmentTimeoutRef.current);
       }
     };
-  }, [config.fields, backgroundUrl, runner, scheduleLayoutReady]);
+  }, [config.fields, backgroundUrl, runner, scheduleLayoutReady, isCapturing]);
 
   // วัดความกว้างและปรับให้ขึ้นบรรทัดใหม่ (Wrap Mode)
   useEffect(() => {
+    // Frozen during capture for the same reason as the scale pass above.
+    if (isCapturing) return;
+
     const wrapToFitFields = config.fields?.filter(f => f.toFitType === 'wrap') || [];
     if (wrapToFitFields.length === 0) return;
 
@@ -604,7 +615,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
         clearTimeout(layoutAdjustmentTimeoutRef.current);
       }
     };
-  }, [config.fields, backgroundUrl, runner, scheduleLayoutReady]);
+  }, [config.fields, backgroundUrl, runner, scheduleLayoutReady, isCapturing]);
 
   return (
     <>
