@@ -445,6 +445,13 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
   const card1CaptureReadyRef = useRef(false);
   const card2CaptureReadyRef = useRef(false);
   // Stable identities: these land in the template's effect dependencies.
+  // onLayoutReady in particular used to be an inline arrow, so it changed on
+  // every render of this component — which tore down and re-ran the template's
+  // scale-to-fit effect each time, resetting every auto-shrunk field back to
+  // its configured size and re-shrinking it over the following frames. Capture
+  // during one of those windows and the saved image gets the unshrunk text.
+  const handleCard1LayoutReady = useCallback(() => { card1LayoutReadyRef.current = true; }, []);
+  const handleCard2LayoutReady = useCallback(() => { card2LayoutReadyRef.current = true; }, []);
   const handleCard1CaptureReady = useCallback(() => { card1CaptureReadyRef.current = true; }, []);
   const handleCard2CaptureReady = useCallback(() => { card2CaptureReadyRef.current = true; }, []);
 
@@ -1705,7 +1712,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                   qrCodeUrl={bibPassQrCodeUrl}
                   containerRefCallback={(ref) => { templateContainerRef.current = ref; }}
                   isCapturing={isCapturing}
-                  onLayoutReady={() => { card1LayoutReadyRef.current = true; }}
+                  onLayoutReady={handleCard1LayoutReady}
                   onCaptureReady={handleCard1CaptureReady}
                 />
               </div>
@@ -1732,7 +1739,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                   qrCodeUrl={bibPassQrCodeUrl2}
                   containerRefCallback={(ref) => { templateContainerRef2.current = ref; }}
                   isCapturing={isCapturing2}
-                  onLayoutReady={() => { card2LayoutReadyRef.current = true; }}
+                  onLayoutReady={handleCard2LayoutReady}
                   onCaptureReady={handleCard2CaptureReady}
                 />
               </div>
