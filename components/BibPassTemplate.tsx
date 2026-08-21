@@ -18,6 +18,10 @@ interface TemplateProps {
   // The runner's own photo, drawn into the template's 'profile_picture' slot.
   // Its presence is also what switches the card to the cut-out artwork.
   profilePictureUrl?: string;
+  // Draws a grey stand-in in an empty photo slot. For the template editors only,
+  // where seeing the slot is the point — never on a runner's card, where the
+  // stand-in has nothing to show through the artwork but its corners.
+  showEmptyPhotoSlot?: boolean;
 }
 
 // Shown in the photo slot while no real photo exists — inline so the editor
@@ -52,7 +56,7 @@ const fillTemplate = (template: string, runner: Runner) => {
   return template.replace(/\{(\w+)\}/g, (match, key) => getRunnerValue(runner, key));
 };
 
-const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false, profilePictureUrl }) => {
+const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false, profilePictureUrl, showEmptyPhotoSlot = false }) => {
   // Two artworks per template: the plain one, and a cut-out one used once the
   // runner has a photo to show through it.
   const backgroundUrl = (profilePictureUrl && config?.backgroundImageUrlWithPhoto)
@@ -759,7 +763,14 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
               const profileHeight = field.profileHeight || 100;
               const profileShape = field.profileShape || 'circle'; // Default to circle
               // Use profilePictureUrl prop if provided (from cropped image), otherwise use placeholder
-              const profileUrl = profilePictureUrl || field.profilePicture || PHOTO_SLOT_PLACEHOLDER;
+              const profileUrl = profilePictureUrl || field.profilePicture
+                || (showEmptyPhotoSlot ? PHOTO_SLOT_PLACEHOLDER : '');
+
+              // An empty slot draws nothing on a runner's card. The stand-in used
+              // to render here regardless, sized to cover the slot — which on a
+              // slot wider than the card meant a square rectangle sitting behind
+              // the artwork and poking out through its rounded corners.
+              if (!profileUrl) return null;
               // Soft feathered edge: opaque in the center, fades to transparent
               // near the rim so the photo blends into the artwork cut-out.
               const softEdgeMask = profileShape === 'circle'
