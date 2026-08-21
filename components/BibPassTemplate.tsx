@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { Runner, WebPassConfig } from '../types';
+import { getCaptureTextOffsetForElement } from '../utils/captureTextOffset';
 
 // ค่าคงที่สำหรับการเขยิบ row_no เมื่อ row เป็นค่าว่าง
 const ROW_EMPTY_OFFSET = 12; // px
@@ -15,6 +16,10 @@ interface TemplateProps {
   onLayoutReady?: () => void;
   containerRefCallback?: (ref: HTMLDivElement | null) => void;
   isCapturing?: boolean;
+  // Fired once the capture-mode pixel positions are committed to the DOM, i.e.
+  // the card is finally laid out the way the saved image should look. The
+  // capture waits on this instead of guessing with a fixed delay.
+  onCaptureReady?: () => void;
   // The runner's own photo, drawn into the template's 'profile_picture' slot.
   // Its presence is also what switches the card to the cut-out artwork.
   profilePictureUrl?: string;
@@ -56,7 +61,7 @@ const fillTemplate = (template: string, runner: Runner) => {
   return template.replace(/\{(\w+)\}/g, (match, key) => getRunnerValue(runner, key));
 };
 
-const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false, profilePictureUrl, showEmptyPhotoSlot = false }) => {
+const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false, onCaptureReady, profilePictureUrl, showEmptyPhotoSlot = false }) => {
   // Two artworks per template: the plain one, and a cut-out one used once the
   // runner has a photo to show through it.
   const backgroundUrl = (profilePictureUrl && config?.backgroundImageUrlWithPhoto)
@@ -76,45 +81,45 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
     }
   }, [containerRefCallback]);
 
-  // Calculate pixel positions when capturing
-  useEffect(() => {
+  // Calculate pixel positions when capturing.
+  //
+  // useLayoutEffect, and measured straight away, on purpose. This used to sit
+  // behind setTimeout(200) + two requestAnimationFrames, which raced the
+  // capture's own fixed wait and lost outright whenever frames were slow or
+  // not delivered at all (hidden tab, backgrounded webview, busy phone). The
+  // capture then photographed the card with these corrections missing and every
+  // field came out ~10-20px low. offsetWidth/offsetHeight are layout values and
+  // are readable synchronously here, so there is nothing to wait for.
+  useLayoutEffect(() => {
     if (isCapturing && containerRef.current && config.fields) {
-      // Wait for layout to settle and field elements to render
-      const timeoutId = setTimeout(() => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            const container = containerRef.current;
-            if (!container) return;
+      const containerWidth = containerRef.current.offsetWidth;
+      const containerHeight = containerRef.current.offsetHeight;
 
-            const containerWidth = container.offsetWidth;
-            const containerHeight = container.offsetHeight;
+      if (containerWidth > 0 && containerHeight > 0) {
+        calculatePixelPositions(containerWidth, containerHeight);
+        return;
+      }
 
-            if (containerWidth === 0 || containerHeight === 0) {
-              // Retry if container not ready
-              setTimeout(() => {
-                if (containerRef.current && isCapturing) {
-                  const retryWidth = containerRef.current.offsetWidth;
-                  const retryHeight = containerRef.current.offsetHeight;
-                  if (retryWidth > 0 && retryHeight > 0) {
-                    calculatePixelPositions(retryWidth, retryHeight);
-                  }
-                }
-              }, 100);
-              return;
-            }
+      // Container has no size yet (artwork still loading). Retry on a timer —
+      // never on a frame callback, for the reason above.
+      const retryId = setTimeout(() => {
+        if (containerRef.current) {
+          const retryWidth = containerRef.current.offsetWidth;
+          const retryHeight = containerRef.current.offsetHeight;
+          if (retryWidth > 0 && retryHeight > 0) {
+            calculatePixelPositions(retryWidth, retryHeight);
+          }
+        }
+      }, 100);
 
-            calculatePixelPositions(containerWidth, containerHeight);
-          });
-        });
-      }, 200); // Wait 200ms for field elements to render
-
-      return () => clearTimeout(timeoutId);
+      return () => clearTimeout(retryId);
     } else if (!isCapturing) {
       setPixelPositions({});
     }
 
     function calculatePixelPositions(containerWidth: number, containerHeight: number) {
       if (!config.fields) return;
+      const container = containerRef.current;
 
       const positions: { [key: string]: { left: number; top: number } } = {};
 
@@ -124,83 +129,29 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
         const leftPx = (field.x / 100) * containerWidth;
         let topPx = (field.y / 100) * containerHeight;
 
-        // Handle row_no offset first (before general adjustment)
-        const isRowNoField = field.key === 'row_no';
-        let hasRowNoOffset = false;
-        if (isRowNoField) {
+        // The row_no slot slides up into the gap when there is no row to sit
+        // under it. A layout rule, not a capture correction — the preview
+        // applies the same shift (see topPosition below), so it belongs here
+        // too.
+        if (field.key === 'row_no') {
           const rowField = config.fields?.find(f => f.key === 'row');
           const rowValue = rowField ? runner.row : undefined;
-          const isRowEmpty = rowValue === null || rowValue === undefined || rowValue === '';
-          if (isRowEmpty) {
-            topPx -= ROW_EMPTY_OFFSET + 5;
-            hasRowNoOffset = true;
+          if (rowValue === null || rowValue === undefined || rowValue === '') {
+            topPx -= ROW_EMPTY_OFFSET;
           }
         }
 
-        // Adjust top position by -12px when capturing (except QR code, row, and row_no with offset)
-        // row and row_no have their own positioning logic, so we don't apply general offset
-        if (field.key === 'row' && !(isRowNoField && hasRowNoOffset)) {
-          topPx -= 8;
-        }
-        // Check if row_no value starts with 'PRE' first - apply -17px only for PRE row_no
-        else if (field.key === 'row_no') {
-          const rowNoValue = runner.row_no;
-          if (rowNoValue && String(rowNoValue).startsWith('PRE') && !(isRowNoField && hasRowNoOffset)) {
-            topPx -= 12;
-          } else if (rowNoValue && String(rowNoValue).startsWith('DEFER')) {
-            topPx -= 5;
-          } else if (rowNoValue && String(rowNoValue).startsWith('PACKAGE') && !(isRowNoField && hasRowNoOffset)) {
-            topPx -= 7;
-          } else if (rowNoValue && String(rowNoValue).startsWith('PACER')) {
-            topPx -= 5;
-          } else if (rowNoValue && String(rowNoValue).startsWith('VIP')) {
-            topPx -= 10;
-          } else if (field.toFitType !== 'scale' && !(isRowNoField && hasRowNoOffset)) {
-            topPx -= 25;
-          } else if (field.toFitType === 'scale' && !(isRowNoField && hasRowNoOffset)) {
-            topPx -= 23;
-          }
-
-          topPx -= 3;
-        }
-        else if (field.key === 'profile_picture') {
-          topPx -= 0;
-        }
-        else if (field.key === 'custom_image') {
-          // Images are anchored dead centre, so they need no baseline nudge.
-          topPx -= 0;
-        }
-        else if (field.key === 'qr_code') {
-          topPx -= 0;
-        } else if (field.key === 'wave_start') {
-          topPx -= 7;
-        } else if (field.key === 'block' || field.key === 'bib' || field.key === 'first_name') {
-          if (field.key === 'block') {
-          
-            const blockValue = runner.block;
-            if (blockValue && String(blockValue).startsWith('Defer')) {
-              topPx -= 12;
-            } else if (blockValue && String(blockValue).startsWith('SEMI-ELITE')) {
-              topPx -= 5;
-            } else if (blockValue && String(blockValue).startsWith('REFUND')) {
-              topPx -= 5;
-            } else if (blockValue && String(blockValue).startsWith('PACER')) {
-              topPx -= 10;
-            } else if (blockValue && String(blockValue).startsWith('TFR')) {
-              topPx -= 15;
-            } else {
-              topPx -= 15;
-            }
-          } else {
-            topPx -= 15;
-          }
-        }
-        // ขยับ pre_order เฉพาะตอน capture ให้ตรงกับ preview
-        else if (field.key === 'pre_order') {
-          topPx -= 15;
-        }  
-        else {
-          topPx -= 9;
+        // Pull text up by however far html2canvas is going to push it down.
+        // Measured from the field as actually rendered, so it follows the real
+        // font and the real size — including whatever a scale-to-fit field
+        // shrank to. Image fields (QR, photo, custom image) need nothing:
+        // html2canvas places boxes exactly.
+        const isTextField = field.key !== 'qr_code'
+          && field.key !== 'profile_picture'
+          && field.key !== 'custom_image';
+        if (isTextField) {
+          const fieldEl = container?.querySelector(`[data-field-id="${field.id}"]`) ?? null;
+          topPx -= getCaptureTextOffsetForElement(fieldEl);
         }
 
         positions[field.id] = { left: leftPx, top: topPx };
@@ -209,6 +160,17 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
       setPixelPositions(positions);
     }
   }, [isCapturing, config.fields, runner]);
+
+  // Tell the parent the moment those positions are actually on the elements.
+  // Runs in the same commit, before paint, so a capture that waits on this can
+  // never photograph the uncorrected layout.
+  useLayoutEffect(() => {
+    if (!isCapturing || !onCaptureReady) return;
+    const expected = config.fields?.length ?? 0;
+    if (expected === 0 || Object.keys(pixelPositions).length >= expected) {
+      onCaptureReady();
+    }
+  }, [isCapturing, pixelPositions, config.fields, onCaptureReady]);
 
   const fullNameFieldRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 

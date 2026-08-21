@@ -436,6 +436,17 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
   // within a fraction of a second of the card first mounting.
   const card1LayoutReadyRef = useRef(false);
   const card2LayoutReadyRef = useRef(false);
+  // Set true once BibPassTemplate has committed its capture-mode pixel
+  // positions (see its onCaptureReady prop). The capture waits on this rather
+  // than on a fixed delay: the correction and the capture used to be two
+  // independent timer chains, and whenever the correction lost the race the
+  // saved image came out with every field ~10-20px below where the page shows
+  // it. Reset before each capture, since a card can be saved more than once.
+  const card1CaptureReadyRef = useRef(false);
+  const card2CaptureReadyRef = useRef(false);
+  // Stable identities: these land in the template's effect dependencies.
+  const handleCard1CaptureReady = useCallback(() => { card1CaptureReadyRef.current = true; }, []);
+  const handleCard2CaptureReady = useCallback(() => { card2CaptureReadyRef.current = true; }, []);
 
   // Mobile scale refs/state
   const cardColumnRef = useRef<HTMLDivElement>(null);
@@ -870,15 +881,40 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       }));
     };
 
-    const captureContainer = async (container: HTMLDivElement): Promise<Blob> => {
-      const actualWidth = container.offsetWidth;
-      const actualHeight = container.offsetHeight;
+    // Poll a ref on a plain timer. Deliberately not frame-based: a hidden tab or
+    // a backgrounded webview delivers no frames at all, and that is exactly the
+    // case this whole wait exists to survive.
+    const waitForRef = async (ref: React.MutableRefObject<boolean>, timeoutMs: number) => {
+      const start = Date.now();
+      while (!ref.current) {
+        if (Date.now() - start > timeoutMs) return false;
+        await new Promise((resolve) => setTimeout(resolve, 16));
+      }
+      return true;
+    };
+
+    const captureContainer = async (
+      container: HTMLDivElement,
+      captureReadyRef: React.MutableRefObject<boolean>,
+    ): Promise<Blob> => {
+      // Do not photograph the card until the template says its capture-mode
+      // positions are on the elements. Falls back to the old fixed wait if the
+      // signal never arrives, so a template that can't report ready still gets
+      // captured rather than hanging.
+      const ready = await waitForRef(captureReadyRef, 2000);
+      if (!ready) {
+        console.warn('[BibPassDisplay] Capture-ready signal timed out; falling back to a fixed wait.');
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
 
       await nextFrame();
       await nextFrame();
-      await new Promise(resolve => setTimeout(resolve, 300));
 
       await waitForImagesToLoad(container);
+
+      // Measured after the wait: the corrected layout is what we size to.
+      const actualWidth = container.offsetWidth;
+      const actualHeight = container.offsetHeight;
 
       const canvas = await html2canvas(container, {
         scale: 2,
@@ -927,14 +963,17 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       await new Promise(resolve => setTimeout(resolve, 100));
 
       // 3. Trigger pixel position recalculation in BibPassTemplate
+      card1CaptureReadyRef.current = false;
+      card2CaptureReadyRef.current = false;
       setIsCapturing(true);
       if (hasCard2) setIsCapturing2(true);
 
-      // 4. Capture both cards (captureContainer waits 300ms internally for re-render)
-      const blob1 = await captureContainer(templateContainerRef.current!);
+      // 4. Capture both cards (captureContainer waits for each one's
+      //    capture-ready signal before drawing it)
+      const blob1 = await captureContainer(templateContainerRef.current!, card1CaptureReadyRef);
       let blob2: Blob | null = null;
       if (hasCard2) {
-        blob2 = await captureContainer(templateContainerRef2.current!);
+        blob2 = await captureContainer(templateContainerRef2.current!, card2CaptureReadyRef);
       }
 
       return { blob1, blob2 };
@@ -1667,6 +1706,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                   containerRefCallback={(ref) => { templateContainerRef.current = ref; }}
                   isCapturing={isCapturing}
                   onLayoutReady={() => { card1LayoutReadyRef.current = true; }}
+                  onCaptureReady={handleCard1CaptureReady}
                 />
               </div>
             </div>
@@ -1693,6 +1733,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                   containerRefCallback={(ref) => { templateContainerRef2.current = ref; }}
                   isCapturing={isCapturing2}
                   onLayoutReady={() => { card2LayoutReadyRef.current = true; }}
+                  onCaptureReady={handleCard2CaptureReady}
                 />
               </div>
             </div>
