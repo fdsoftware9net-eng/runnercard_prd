@@ -1,8 +1,21 @@
 
 import QRCode from 'qrcode';
-import { Runner } from '../types';
+import { PassField, Runner } from '../types';
 
-export const generateQrCodeDataUrl = async (content: string, colour_sign: string): Promise<string> => {
+export const DEFAULT_QR_COLOR = '#ffffff';
+
+// Templates saved before the colour picker existed have no qrColor on their QR
+// field, and those cards were always drawn white — so an unset value keeps that.
+export const getQrColorFromConfig = (config?: { fields?: PassField[] } | null): string => {
+    const qrField = config?.fields?.find(field => field.key === 'qr_code');
+    return qrField?.qrColor || DEFAULT_QR_COLOR;
+};
+
+export const generateQrCodeDataUrl = async (
+  content: string,
+  colour_sign: string,
+  qrColor?: string,
+): Promise<string> => {
   try {
     // let color = colour_sign === 'VIP' ? '#70a8a7' : '#1a75bb';
     const dataUrl = await QRCode.toDataURL(content, {
@@ -10,7 +23,7 @@ export const generateQrCodeDataUrl = async (content: string, colour_sign: string
       width: 150,
       margin: 2,
       color: {
-        dark: '#ffffff',
+        dark: qrColor || DEFAULT_QR_COLOR,
         light: '#00000000',
       },
     });

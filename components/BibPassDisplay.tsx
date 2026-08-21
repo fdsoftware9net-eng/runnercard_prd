@@ -3,7 +3,7 @@ import { useParams, useLocation, useSearchParams } from 'react-router-dom';
 import { getRunnerByAccessKey, updateRunner as updateRunnerService, getWalletConfig, logUserActivity, updateWalletPass, checkWalletPass } from '../services/supabaseService';
 import { getSession } from '../services/authService';
 import { Runner, WebPassConfig } from '../types';
-import { generateQrCodeDataUrl } from '../services/bibPassService';
+import { generateQrCodeDataUrl, getQrColorFromConfig } from '../services/bibPassService';
 import { isLiffReady, getLineUserId, closeLiffWindow, isDevLiffMock, shouldMockPipelineApi, getLiffStopAfterStep } from '../services/liffService';
 import Input from './Input';
 import Button from './Button';
@@ -376,6 +376,8 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
   const [idCardHashInput, setIdCardHashInput] = useState('');
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const [bibPassQrCodeUrl, setBibPassQrCodeUrl] = useState<string>('');
+  // Card 2 runs its own template, so it can ask for a different QR colour.
+  const [bibPassQrCodeUrl2, setBibPassQrCodeUrl2] = useState<string>('');
   const [webConfig, setWebConfig] = useState<WebPassConfig>(DEFAULT_CONFIG.web_pass_config!);
 
   // --- Runner-supplied card background (Card 1 only) ---
@@ -498,13 +500,15 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         }
       }
 
-      setWebConfig({
+      const mergedConfig = {
         ...DEFAULT_CONFIG.web_pass_config!,
         ...selectedConfig,
         fields: (selectedConfig.fields && selectedConfig.fields.length > 0) ? selectedConfig.fields : (DEFAULT_CONFIG.web_pass_config?.fields || [])
-      });
+      };
+      setWebConfig(mergedConfig);
 
       // Load Card 2 config
+      let resolvedConfig2: WebPassConfig | null = null;
       if (configResult.data) {
         const templates2 = configResult.data.web_bib_templates_2 || [];
         const rules2 = configResult.data.template_assignment_rules_bib_2 || [];
@@ -525,6 +529,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
             }
           }
 
+          resolvedConfig2 = selectedConfig2;
           setWebConfig2(selectedConfig2);
         }
       }
@@ -534,8 +539,16 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         console.log('runnerResult.data', runnerResult.data);
 
         const qrContent = runnerResult.data.qr || `Runner ID: ${runnerResult.data.id} - Bib: ${runnerResult.data.bib}`;
-        const qrUrl = await generateQrCodeDataUrl(qrContent, runnerResult.data.colour_sign || '');
+        const colourSign = runnerResult.data.colour_sign || '';
+        const qrUrl = await generateQrCodeDataUrl(qrContent, colourSign, getQrColorFromConfig(mergedConfig));
         setBibPassQrCodeUrl(qrUrl);
+
+        const qrColor2 = getQrColorFromConfig(resolvedConfig2);
+        setBibPassQrCodeUrl2(
+          qrColor2 === getQrColorFromConfig(mergedConfig)
+            ? qrUrl
+            : await generateQrCodeDataUrl(qrContent, colourSign, qrColor2)
+        );
 
         if (!runnerResult.data.pass_generated) {
           await updateRunnerService({ id: runnerResult.data.id, pass_generated: true });
@@ -1676,7 +1689,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
                 <BibPassTemplate
                   runner={{ ...runner, motivational_message: randomMessage }}
                   config={webConfig2}
-                  qrCodeUrl={bibPassQrCodeUrl}
+                  qrCodeUrl={bibPassQrCodeUrl2}
                   containerRefCallback={(ref) => { templateContainerRef2.current = ref; }}
                   isCapturing={isCapturing2}
                   onLayoutReady={() => { card2LayoutReadyRef.current = true; }}

@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Template from '@/components/BibPassTemplate';
 import { Runner, WebPassConfig } from '@/types';
 import { getWalletConfig } from '@/services/supabaseService';
-import { generateQrCodeDataUrl } from '@/services/bibPassService';
+import { generateQrCodeDataUrl, getQrColorFromConfig } from '@/services/bibPassService';
 import { DEFAULT_CONFIG } from '@/defaults';
 import Button from '@/components/Button';
 import LoadingSpinner from '@/components/LoadingSpinner';
@@ -205,16 +205,17 @@ function CropBibCard() {
 
             }
 
-            setWebConfig({
+            const mergedConfig = {
                 ...DEFAULT_CONFIG.web_pass_config!,
                 ...selectedConfig,
                 fields: (selectedConfig.fields && selectedConfig.fields.length > 0)
                     ? selectedConfig.fields
                     : (DEFAULT_CONFIG.web_pass_config?.fields || [])
-            });
+            };
+            setWebConfig(mergedConfig);
 
             const qrContent = runnerData.qr || `Runner ID: ${runnerData.id} - Bib: ${runnerData.bib}`;
-            const qrUrl = await generateQrCodeDataUrl(qrContent, runnerData.colour_sign || '');
+            const qrUrl = await generateQrCodeDataUrl(qrContent, runnerData.colour_sign || '', getQrColorFromConfig(mergedConfig));
             setBibPassQrCodeUrl(qrUrl);
 
             // Template จะ render เอง และเรียก onLayoutReady เมื่อพร้อม
