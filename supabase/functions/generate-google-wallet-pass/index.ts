@@ -16,14 +16,25 @@ app.use('/*', cors({
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok', message: 'Service is running' }));
 
+// ค่าที่ตัวนำเข้าข้อมูลใส่แทนช่องว่าง เป็นแค่ marker ของฝั่ง admin
+// ไม่ใช่ข้อความที่นักวิ่งควรเห็นบนบัตร จึงถือว่าเป็นค่าว่าง
+const PLACEHOLDER_VALUES = ['n/a', 'not specified'];
+
+const isPlaceholderValue = (value: string) =>
+  PLACEHOLDER_VALUES.includes(value.trim().toLowerCase());
+
+// อ่านค่าจาก runner โดยแปลง null/undefined/placeholder ให้เป็นค่าว่าง
+const getRunnerValue = (runner: any, key: string): string => {
+  const value = runner[key];
+  if (value === undefined || value === null) return '';
+  const str = String(value);
+  return isPlaceholderValue(str) ? '' : str;
+};
+
 // Helper function to replace placeholders
 const fillTemplate = (template: string, runner: any) => {
   if (!template || typeof template !== 'string') return '';
-  return template.replace(/\{(\w+)\}/g, (match, key) => {
-    const value = runner[key];
-    if (value === undefined || value === null || value === '') return '';
-    return String(value);
-  });
+  return template.replace(/\{(\w+)\}/g, (match, key) => getRunnerValue(runner, key));
 };
 
 // Main Handler
@@ -91,14 +102,13 @@ app.post('*', async (c) => {
     // Determine Design (Color/Image)
     let backgroundColor = walletConfig.hex_background_color;
     let heroImageUri = walletConfig.hero_image_uri;
+    let logo_uri = walletConfig.logo_uri;
 
-    if (runner.colour_sign == 'VIP') {
-      backgroundColor = '#70a8a7';
-      heroImageUri = 'https://owcjaxcgeikzogxnoufb.supabase.co/storage/v1/object/public/pass_assets/BS21%202025_strip-02.png';
-    } else if (runner.colour_sign == '1 วัน') {
-      backgroundColor = '#8c8e90';
-      heroImageUri = 'https://owcjaxcgeikzogxnoufb.supabase.co/storage/v1/object/public/pass_assets/BS21%202025_strip-03.png';
-    }
+    if (runner.colour_sign == '5KMThai' ||runner.colour_sign == '5KM' || runner.colour_sign == 'VIP5Thai' || runner.colour_sign == 'VIP5North Korean') {
+      backgroundColor = '#71bf44'; 
+      logo_uri = 'https://owcjaxcgeikzogxnoufb.supabase.co/storage/v1/object/public/wallet_pic/wallet_Bangsaen10_green1.png';  
+      heroImageUri = 'https://owcjaxcgeikzogxnoufb.supabase.co/storage/v1/object/public/wallet_pic/wallet_Bangsaen10_green2.png';  
+    } 
 
     // Build Base Object
     const genericObject: any = {
@@ -106,7 +116,7 @@ app.post('*', async (c) => {
       'classId': classId,
       'genericType': 'GENERIC_TYPE_UNSPECIFIED',
       'hexBackgroundColor': backgroundColor,
-      'logo': { 'sourceUri': { 'uri': walletConfig.logo_uri } },
+      'logo': { 'sourceUri': { 'uri': logo_uri } },
       'cardTitle': {
         'defaultValue': {
           'language': 'en',

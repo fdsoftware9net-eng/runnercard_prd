@@ -23,13 +23,22 @@ app.use('/*', cors({
 app.get('/health', (c) => c.json({ status: 'ok', message: 'Apple Wallet generator is ready.' }));
 app.options('/*', (c) => c.text('', 204));
 
+// ค่าที่ตัวนำเข้าข้อมูลใส่แทนช่องว่าง เป็นแค่ marker ของฝั่ง admin
+// ไม่ใช่ข้อความที่นักวิ่งควรเห็นบนบัตร จึงแทนด้วย "-"
+const PLACEHOLDER_VALUES = ['n/a', 'not specified'];
+const PLACEHOLDER_REPLACEMENT = '-';
+
+const isPlaceholderValue = (value: string) =>
+    PLACEHOLDER_VALUES.includes(value.trim().toLowerCase());
+
 const fillTemplate = (template: string, runner: any) => {
     if (!template) return '';
     // ✅ แก้ไข: รองรับ field ที่มี underscore และตัวอักษรอื่นๆ
     return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (match, key) => {
         const value = runner[key];
         if (value !== undefined && value !== null) {
-            return String(value);
+            const str = String(value);
+            return isPlaceholderValue(str) ? PLACEHOLDER_REPLACEMENT : str;
         }
         // ✅ เพิ่ม: Log เมื่อไม่พบ field
         console.warn(`⚠️ Template placeholder "${match}" not found in runner data. Available keys: ${Object.keys(runner).join(', ')}`);
@@ -699,15 +708,11 @@ const handleRequest = async (c: any) => {
         let backgroundColor = appleConfig.backgroundColor || 'rgb(0, 0, 0)';
         
         // ✅ ตรวจสอบ colour_sign และเปลี่ยนสี Background Color ตามเงื่อนไข
-        if (runner.colour_sign == 'VIP') {
-            backgroundColor = '#70a8a7';
+        // 5KM , VIP5Thai,  VIP5North Korean
+        if (runner.colour_sign == '5KMThai' ||runner.colour_sign == '5KM' || runner.colour_sign == 'VIP5Thai' || runner.colour_sign == 'VIP5North Korean') {
+            backgroundColor = '#71bf44';
             console.log(`🎨 Background color changed to VIP color: ${backgroundColor}`);
-        } else if (runner.colour_sign == '1 วัน') {
-            backgroundColor = '#8c8e90';
-            console.log(`🎨 Background color changed to "1 วัน" color: ${backgroundColor}`);
-        } else {
-            console.log(`🎨 Using configured background color: ${backgroundColor}`);
-        }
+        } 
 
    
         const passJson: any = {
