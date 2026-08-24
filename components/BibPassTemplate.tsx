@@ -710,7 +710,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
                   // applies it to its own clone at capture time. Setting it here
                   // would break plain display of any host without CORS headers.
                   style={{
-                    borderRadius: '20px',
+                    borderRadius: '0px',
                     position: 'absolute',
                     left: pixelPos ? `${pixelPos.left}px` : `${field.x}%`,
                     top: pixelPos ? `${pixelPos.top}px` : `${field.y}%`,
