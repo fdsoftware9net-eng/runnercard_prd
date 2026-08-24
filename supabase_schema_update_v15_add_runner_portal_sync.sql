@@ -18,9 +18,10 @@
 --                             signed and sent so a retry replays them verbatim
 --   runner_portal_sync_state  the integration's own status (cutover, throttle)
 --
--- No RLS policies are added on purpose: these tables carry runner names and are
--- reachable only with the service-role key, i.e. only from the Edge Function.
--- The admin screen reads them through that function, never directly.
+-- All three carry runner names, so all three get RLS enabled with no policies
+-- at all — see the end of this file. That combination is what makes them
+-- reachable only with the service-role key, i.e. only from the Edge Function;
+-- the admin screen reads them through that function and never directly.
 --
 -- Safe to re-run. Run this in Supabase SQL Editor.
 
@@ -291,3 +292,23 @@ $function$;
 
 comment on function rp_release_stale_claims(interval) is
   'Returns rows to pending that were claimed but never attached to a batch. Rows that DO have a batch are left alone: that batch is retried instead, with its original Idempotency-Key.';
+
+-- --------------------------------------------------------------------------
+-- Locking the three tables down
+-- --------------------------------------------------------------------------
+-- Supabase grants anon and authenticated access to new tables in the public
+-- schema by default, and the anon key is embedded in the public bib pass page.
+-- Without this, the queue would hand a runner's name to anyone who asked —
+-- which is what the Table Editor flags as UNRESTRICTED.
+--
+-- Enabled with NO policies on purpose. A policy would describe who may read
+-- what, and the answer here is nobody: the only legitimate caller is the
+-- runner-portal-sync Edge Function, which uses the service-role key and
+-- bypasses RLS entirely. The enqueue trigger is SECURITY DEFINER, so it is
+-- unaffected too.
+--
+-- If a future screen needs to read these directly, add a policy here
+-- deliberately rather than turning RLS back off.
+alter table runner_portal_sync_queue enable row level security;
+alter table runner_portal_sync_batch enable row level security;
+alter table runner_portal_sync_state enable row level security;
