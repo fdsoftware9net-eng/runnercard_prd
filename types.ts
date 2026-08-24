@@ -26,6 +26,7 @@ export interface Runner {
   top_50_no?: string; // TOP 50 Number
   top50?: string; // TOP 50 information
   colour_sign?: string; // Color sign information
+  vip?: string; // 'YES' = VIP runner, 'NO' or '' = not VIP
   qr?: string; // QR code URL
   pass_generated: boolean; // Indicates if a pass has been generated/sent
   google_jwt: string | null; // Re-added to match DB schema
@@ -278,6 +279,14 @@ export interface PassField {
   toFitType?: 'scale' | 'wrap' | 'fixed'; // How to fit the field to container: 'scale' (adjust font size), 'wrap' (wrap text), or 'fixed' (fixed width 300px, right-aligned)
   toFitWidth?: number; // Desired width in pixels when toFitType is set (e.g., 420 or 50)
   minSize?: number; // Minimum font size in pixels when toFitType is 'scale' (default: 10)
+  // Conditional display. Left unset on every existing template, which is what
+  // "no condition" means: the field is drawn for every runner. When enabled the
+  // field is only drawn if the runner's data satisfies the condition — see
+  // utils/passFieldCondition.ts.
+  conditionEnabled?: boolean;
+  conditionField?: keyof Runner;
+  conditionOperator?: 'equals' | 'not_equals' | 'contains' | 'is_empty' | 'is_not_empty';
+  conditionValue?: string;
 }
 
 export interface TemplateAssignmentRule {

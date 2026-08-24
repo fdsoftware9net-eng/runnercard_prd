@@ -6,6 +6,7 @@ import Input from './Input';
 import Button from './Button';
 import LoadingSpinner from './LoadingSpinner';
 import BibPassTemplate from './BibPassTemplate';
+import FieldConditionEditor from './FieldConditionEditor';
 import Select from './Select';
 import { DEFAULT_CONFIG, RUNNER_COLUMNS } from '../defaults';
 import { DEFAULT_QR_COLOR, generateQrCodeDataUrl, getQrColorFromConfig } from '../services/bibPassService';
@@ -19,6 +20,7 @@ const WEB_PREVIEW_RUNNER_VIP = {
     name_on_bib: 'SOMCHAI J.',
     race_kit: 'Full Marathon Kit (Pick up Fri 10-20)',
     colour_sign: 'VIP',
+    vip: 'YES',
     row: 'VIP',
     row_no: '1',
     shirt: 'L (42")',
@@ -47,6 +49,7 @@ const WEB_PREVIEW_RUNNER_FRI_SAT = {
     name_on_bib: 'SOMCHAI J.',
     race_kit: 'Full Marathon Kit (Pick up Fri 10-20)',
     colour_sign: '2 วัน',
+    vip: 'NO',
     row: 'VIP',
     row_no: '1',
     shirt: 'L (42")',
@@ -74,6 +77,7 @@ const WEB_PREVIEW_RUNNER_FRI: Runner = {
     name_on_bib: 'SOMCHAI J.',
     race_kit: 'Full Marathon Kit (Pick up Fri 10-20)',
     colour_sign: '1 วัน',
+    vip: 'NO',
     row: 'Row',
     row_no: '5',
     shirt: 'L (42")',
@@ -179,6 +183,7 @@ const WebPassConfigPage: React.FC = () => {
     const [rules, setRules] = useState<TemplateAssignmentRule[]>([]);
     const [currentTemplateId, setCurrentTemplateId] = useState<string>('');
     const [showGrid, setShowGrid] = useState(false);
+    const [rulesExpanded, setRulesExpanded] = useState(false);
     const [previewWithPhoto, setPreviewWithPhoto] = useState(false);
     const previewRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState<number>(500); // Default to 500px
@@ -518,22 +523,54 @@ const WebPassConfigPage: React.FC = () => {
             </div>
 
             {/* Template Assignment Rules */}
-            <div className="bg-gray-700 p-6 rounded-lg mb-6 border border-gray-600">
-                <div className="flex justify-between items-center mb-4">
-                    <div>
-                        <h3 className="text-xl font-bold text-white">Auto-Assignment Rules</h3>
-                        <p className="text-gray-400 text-sm">Automatically assign templates to runners based on their data.</p>
+            <div className="bg-gray-700 rounded-lg mb-6 border border-gray-600">
+                {/* Accordion header */}
+                <div
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={rulesExpanded}
+                    aria-controls="auto-assignment-rules-body"
+                    onClick={() => setRulesExpanded(prev => !prev)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setRulesExpanded(prev => !prev);
+                        }
+                    }}
+                    className="flex justify-between items-center gap-3 p-6 cursor-pointer select-none rounded-lg hover:bg-gray-600/40"
+                >
+                    <div className="flex items-center gap-3">
+                        <svg
+                            className={`w-8 h-8 text-gray-300 transition-transform ${rulesExpanded ? 'rotate-90' : ''}`}
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                            aria-hidden="true"
+                        >
+                            <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                        </svg>
+                        <div>
+                            <h3 className="text-xl font-bold text-white">
+                                Auto-Assignment Rules
+                                <span className="ml-2 text-sm font-normal text-gray-400">({rules.length})</span>
+                            </h3>
+                            <p className="text-gray-400 text-sm">Automatically assign templates to runners based on their data.</p>
+                        </div>
                     </div>
                     <button
                         type="button"
-                        onClick={addRule}
-                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setRulesExpanded(true);
+                            addRule();
+                        }}
+                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm shrink-0"
                     >
                         + Add Rule
                     </button>
                 </div>
 
-                <div className="space-y-3">
+                {/* Accordion body */}
+                <div id="auto-assignment-rules-body" className={`space-y-3 px-6 pb-6 ${rulesExpanded ? '' : 'hidden'}`}>
                     {rules.map(rule => (
                         <div key={rule.id} className="flex flex-wrap items-center gap-3 bg-gray-800 p-3 rounded border border-gray-600">
                             <span className="text-gray-300 text-sm font-medium">If</span>
@@ -1179,6 +1216,11 @@ const WebPassConfigPage: React.FC = () => {
                                     )}
                                 </div>
                                 )}
+
+                                <FieldConditionEditor
+                                    field={selectedField}
+                                    onChange={(updates) => updateField(selectedField.id, updates)}
+                                />
                             </div>
                         </div>
                     )}
@@ -1231,6 +1273,9 @@ const WebPassConfigPage: React.FC = () => {
                                         config={webConfig}
                                         showEmptyPhotoSlot
                                         qrCodeUrl={previewQrCodeUrl}
+                                        // Editor preview: every field stays visible, condition or not,
+                                        // so a conditional field can still be positioned here.
+                                        ignoreFieldConditions
                                         // Feeding a sample photo is what switches the preview to the
                                         // cut-out artwork, so the slot can be lined up against the
                                         // artwork it actually shows through.

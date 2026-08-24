@@ -1,6 +1,7 @@
-import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { Runner, WebPassConfig } from '../types';
 import { getCaptureTextOffsetForElement } from '../utils/captureTextOffset';
+import { getRunnerValue, isFieldVisibleForRunner, isPlaceholderValue } from '../utils/passFieldCondition';
 
 // ค่าคงที่สำหรับการเขยิบ row_no เมื่อ row เป็นค่าว่าง
 const ROW_EMPTY_OFFSET = 12; // px
@@ -27,6 +28,10 @@ interface TemplateProps {
   // where seeing the slot is the point — never on a runner's card, where the
   // stand-in has nothing to show through the artwork but its corners.
   showEmptyPhotoSlot?: boolean;
+  // Draws every field regardless of its display condition. For the template
+  // editors only, where a field that the sample runner fails must still be
+  // visible to be positioned. A runner's real card never sets this.
+  ignoreFieldConditions?: boolean;
 }
 
 // Shown in the photo slot while no real photo exists — inline so the editor
@@ -40,33 +45,27 @@ const PHOTO_SLOT_PLACEHOLDER =
     '</svg>'
   );
 
-// ค่าที่ตัวนำเข้าข้อมูลใส่แทนช่องว่าง เป็นแค่ marker ของฝั่ง admin
-// ไม่ใช่ข้อความที่นักวิ่งควรเห็นบนการ์ด จึงถือว่าเป็นค่าว่าง
-const PLACEHOLDER_VALUES = ['n/a', 'not specified'];
-
-const isPlaceholderValue = (value: string) =>
-  PLACEHOLDER_VALUES.includes(value.trim().toLowerCase());
-
-// อ่านค่าจาก runner โดยแปลง null/undefined/placeholder ให้เป็นค่าว่าง
-const getRunnerValue = (runner: Runner, key: string): string => {
-  const val = runner[key as keyof Runner];
-  if (val === undefined || val === null) return '';
-  const str = String(val);
-  return isPlaceholderValue(str) ? '' : str;
-};
-
 // Helper to fill templates
 const fillTemplate = (template: string, runner: Runner) => {
   if (!template) return '';
   return template.replace(/\{(\w+)\}/g, (match, key) => getRunnerValue(runner, key));
 };
 
-const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false, onCaptureReady, profilePictureUrl, showEmptyPhotoSlot = false }) => {
+const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, onLayoutReady, containerRefCallback, isCapturing = false, onCaptureReady, profilePictureUrl, showEmptyPhotoSlot = false, ignoreFieldConditions = false }) => {
   // Two artworks per template: the plain one, and a cut-out one used once the
   // runner has a photo to show through it.
   const backgroundUrl = (profilePictureUrl && config?.backgroundImageUrlWithPhoto)
     ? config.backgroundImageUrlWithPhoto
     : config?.backgroundImageUrl;
+
+  // The fields this runner actually gets. Everything downstream — capture
+  // positions, the fit/wrap measuring passes, the render itself — works off
+  // this list, so a field hidden by its condition is never measured, never
+  // positioned and never counted while waiting for the capture to be ready.
+  const visibleFields = useMemo(
+    () => (config?.fields || []).filter(f => ignoreFieldConditions || isFieldVisibleForRunner(f, runner)),
+    [config?.fields, runner, ignoreFieldConditions]
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [pixelPositions, setPixelPositions] = useState<{ [key: string]: { left: number; top: number } }>({});
@@ -91,7 +90,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
   // field came out ~10-20px low. offsetWidth/offsetHeight are layout values and
   // are readable synchronously here, so there is nothing to wait for.
   useLayoutEffect(() => {
-    if (isCapturing && containerRef.current && config.fields) {
+    if (isCapturing && containerRef.current) {
       const containerWidth = containerRef.current.offsetWidth;
       const containerHeight = containerRef.current.offsetHeight;
 
@@ -118,12 +117,11 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
     }
 
     function calculatePixelPositions(containerWidth: number, containerHeight: number) {
-      if (!config.fields) return;
       const container = containerRef.current;
 
       const positions: { [key: string]: { left: number; top: number } } = {};
 
-      config.fields.forEach(field => {
+      visibleFields.forEach(field => {
         // console.log('field', field);
         // Convert percentage to pixels
         const leftPx = (field.x / 100) * containerWidth;
@@ -134,7 +132,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
         // applies the same shift (see topPosition below), so it belongs here
         // too.
         if (field.key === 'row_no') {
-          const rowField = config.fields?.find(f => f.key === 'row');
+          const rowField = visibleFields.find(f => f.key === 'row');
           const rowValue = rowField ? runner.row : undefined;
           if (rowValue === null || rowValue === undefined || rowValue === '') {
             topPx -= ROW_EMPTY_OFFSET;
@@ -159,18 +157,18 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
 
       setPixelPositions(positions);
     }
-  }, [isCapturing, config.fields, runner]);
+  }, [isCapturing, visibleFields, runner]);
 
   // Tell the parent the moment those positions are actually on the elements.
   // Runs in the same commit, before paint, so a capture that waits on this can
   // never photograph the uncorrected layout.
   useLayoutEffect(() => {
     if (!isCapturing || !onCaptureReady) return;
-    const expected = config.fields?.length ?? 0;
+    const expected = visibleFields.length;
     if (expected === 0 || Object.keys(pixelPositions).length >= expected) {
       onCaptureReady();
     }
-  }, [isCapturing, pixelPositions, config.fields, onCaptureReady]);
+  }, [isCapturing, pixelPositions, visibleFields, onCaptureReady]);
 
   const fullNameFieldRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
 
@@ -235,7 +233,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
 
   // Call layout ready immediately if no fields need adjustment
   useEffect(() => {
-    const hasAdjustments = config.fields?.some(f => f.toFitType === 'scale' || f.toFitType === 'wrap') || false;
+    const hasAdjustments = visibleFields.some(f => f.toFitType === 'scale' || f.toFitType === 'wrap');
     if (!hasAdjustments && onLayoutReady) {
       // No adjustments needed, call ready immediately after initial render
       const timeoutId = setTimeout(() => {
@@ -247,7 +245,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
       }, 100);
       return () => clearTimeout(timeoutId);
     }
-  }, [config.fields, onLayoutReady]);
+  }, [visibleFields, onLayoutReady]);
 
   // วัดความกว้างของ div ที่ให้ปรับขนาด (Scale Mode)
   useEffect(() => {
@@ -259,7 +257,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
     // nothing and removes the race entirely.
     if (isCapturing) return;
 
-    const scaleToFitFields = config.fields?.filter(f => f.toFitType === 'scale') || [];
+    const scaleToFitFields = visibleFields.filter(f => f.toFitType === 'scale');
     if (scaleToFitFields.length === 0) return;
 
     const timeoutIds: NodeJS.Timeout[] = [];
@@ -446,14 +444,14 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
         clearTimeout(layoutAdjustmentTimeoutRef.current);
       }
     };
-  }, [config.fields, backgroundUrl, runner, scheduleLayoutReady, isCapturing]);
+  }, [visibleFields, backgroundUrl, runner, scheduleLayoutReady, isCapturing]);
 
   // วัดความกว้างและปรับให้ขึ้นบรรทัดใหม่ (Wrap Mode)
   useEffect(() => {
     // Frozen during capture for the same reason as the scale pass above.
     if (isCapturing) return;
 
-    const wrapToFitFields = config.fields?.filter(f => f.toFitType === 'wrap') || [];
+    const wrapToFitFields = visibleFields.filter(f => f.toFitType === 'wrap');
     if (wrapToFitFields.length === 0) return;
 
     const timeoutIds: NodeJS.Timeout[] = [];
@@ -615,7 +613,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
         clearTimeout(layoutAdjustmentTimeoutRef.current);
       }
     };
-  }, [config.fields, backgroundUrl, runner, scheduleLayoutReady, isCapturing]);
+  }, [visibleFields, backgroundUrl, runner, scheduleLayoutReady, isCapturing]);
 
   return (
     <>
@@ -652,7 +650,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
 
         {/* Dynamic Fields Overlay */}
         <div className="absolute inset-0" style={{ overflow: 'visible' }} translate="no">
-          {config.fields?.map((field) => {
+          {visibleFields.map((field) => {
             let content = '';
             if (field.key === 'custom_text') {
               content = field.customText || '';
@@ -838,7 +836,7 @@ const BibPassTemplate: React.FC<TemplateProps> = ({ runner, config, qrCodeUrl, o
 
 
             // ตรวจสอบ field row และปรับ row_no position ถ้าจำเป็น
-            const rowField = config.fields?.find(f => f.key === 'row');
+            const rowField = visibleFields.find(f => f.key === 'row');
             const isRowNoField = field.key === 'row_no';
             const rowValue = rowField ? runner.row : undefined;
             const isRowEmpty = rowValue === null || rowValue === undefined || rowValue === '';

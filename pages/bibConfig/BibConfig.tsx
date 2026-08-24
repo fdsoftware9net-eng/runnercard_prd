@@ -6,6 +6,7 @@ import Input from '../../components/Input';
 import Button from '../../components/Button';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import BibPassTemplate from '../../components/BibPassTemplate';
+import FieldConditionEditor from '../../components/FieldConditionEditor';
 import Select from '../../components/Select';
 import { DEFAULT_CONFIG, RUNNER_COLUMNS } from '../../defaults';
 import { v4 as uuidv4 } from 'uuid';
@@ -18,6 +19,7 @@ const WEB_PREVIEW_RUNNER_VIP = {
     name_on_bib: 'SOMCHAI J.',
     race_kit: 'Full Marathon Kit (Pick up Fri 10-20)',
     colour_sign: 'VIP',
+    vip: 'YES',
     row: 'VIP',
     row_no: '1',
     shirt: 'L (42")',
@@ -46,6 +48,7 @@ const WEB_PREVIEW_RUNNER_FRI_SAT = {
     name_on_bib: 'SOMCHAI J.',
     race_kit: 'Full Marathon Kit (Pick up Fri 10-20)',
     colour_sign: '2 วัน',
+    vip: 'NO',
     row: 'VIP',
     row_no: '1',
     shirt: 'L (42")',
@@ -73,6 +76,7 @@ const WEB_PREVIEW_RUNNER_FRI: Runner = {
     name_on_bib: 'SOMCHAI J.',
     race_kit: 'Full Marathon Kit (Pick up Fri 10-20)',
     colour_sign: '1 วัน',
+    vip: 'NO',
     row: 'Row',
     row_no: '5',
     shirt: 'L (42")',
@@ -1109,6 +1113,11 @@ const BibConfigPage: React.FC = () => {
                                     )}
                                 </div>
                                 )}
+
+                                <FieldConditionEditor
+                                    field={selectedField}
+                                    onChange={(updates) => updateField(selectedField.id, updates)}
+                                />
                             </div>
                         </div>
                     )}
@@ -1151,6 +1160,9 @@ const BibConfigPage: React.FC = () => {
                                         config={webConfig}
                                         showEmptyPhotoSlot
                                         qrCodeUrl="https://via.placeholder.com/150?text=QR"
+                                        // Editor preview: every field stays visible, condition or not,
+                                        // so a conditional field can still be positioned here.
+                                        ignoreFieldConditions
                                     />
 
                                     {/* Grid Overlay */}

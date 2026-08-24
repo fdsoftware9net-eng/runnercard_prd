@@ -83,6 +83,7 @@ const AnalyticsDashboard: React.FC = () => {
     "top_50_no",
     "race_kit",
     "colour_sign",
+    "vip",
     "row",
     "row_no",
     "shirt_type",

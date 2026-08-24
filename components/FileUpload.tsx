@@ -33,6 +33,7 @@ const RUNNER_FIELDS: { key: keyof Runner; label: string; required: boolean }[] =
   { key: 'top_50_no', label: 'TOP 50 No', required: false },
   { key: 'top50', label: 'TOP 50', required: false },
   { key: 'colour_sign', label: 'Colour Sign', required: false },
+  { key: 'vip', label: 'VIP (YES/NO)', required: false },
   { key: 'qr', label: 'QR', required: false },
 ];
 
@@ -277,6 +278,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess, onUploadError 
               top_50_no: getValue(rowValues, 'top_50_no') || undefined,
               top50: getValue(rowValues, 'top50') || undefined,
               colour_sign: getValue(rowValues, 'colour_sign') || undefined,
+              // ไม่มีคอลัมน์ vip ใน CSV ถือว่าไม่ใช่ VIP — เขียน 'NO' ลงไปตรง ๆ
+              // ให้ตรงกับ default ของคอลัมน์ใน DB
+              vip: getValue(rowValues, 'vip') || 'NO',
               qr: getValue(rowValues, 'qr') || undefined,
               pass_generated: false,
               google_jwt: null,
