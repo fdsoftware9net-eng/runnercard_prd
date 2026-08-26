@@ -1055,7 +1055,6 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
     setIsSavingImage(true);
 
     const isIOS = /iPad|iPhone|iPod/.test(userAgent) && !(window as any).MSStream;
-    const isMobile = isIOS || isAndroid;
 
     const performDownload = (blob: Blob, fileName: string) => {
       const objectUrl = URL.createObjectURL(blob);
@@ -1077,8 +1076,9 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
       const filesToShare: File[] = [new File([blob1], fileName1, { type: 'image/png' })];
       if (blob2) filesToShare.push(new File([blob2], fileName2, { type: 'image/png' }));
 
-      if (isMobile && navigator.canShare && navigator.canShare({ files: filesToShare })) {
-        // iOS + Android: share ทั้ง 2 ไฟล์พร้อมกันผ่าน native share sheet
+      if (isIOS && navigator.canShare && navigator.canShare({ files: filesToShare })) {
+        // iOS Safari ไม่รองรับการเซฟรูปตรงๆ ผ่าน <a download> ลง Photos ได้
+        // ต้องพึ่ง native share sheet เท่านั้น
         try {
           await navigator.share({ files: filesToShare, title: 'Runner Cards' });
         } catch {
@@ -1090,7 +1090,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
           }
         }
       } else {
-        // Desktop: download ทีละไฟล์
+        // Android + Desktop: เซฟไฟล์ตรงๆ ผ่าน <a download> ไม่ต้องขึ้น share sheet
         performDownload(blob1, fileName1);
         if (blob2) {
           await new Promise(resolve => setTimeout(resolve, 1000));
@@ -1690,7 +1690,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
 
       <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Left: Visual Pass (Using New Template) */}
-        <div ref={cardColumnRef} className="order-2 lg:order-1 flex flex-col gap-6 w-full">
+        <div ref={cardColumnRef} className="order-1 flex flex-col gap-6 w-full">
           {/* Card 1 */}
           <div ref={card1OuterRef} style={{
             height: card1Height > 0 ? `${Math.ceil(card1Height * cardScale)}px` : 'auto',
@@ -1762,7 +1762,7 @@ export const BibPassDisplay: React.FC<BibPassDisplayProps> = () => {
         </div>
 
         {/* Right: Actions & Info */}
-        <div className="order-1 lg:order-2 bg-gray-800 p-6 rounded-lg shadow-lg h-fit">
+        <div className="order-2 bg-gray-800 p-6 rounded-lg shadow-lg h-fit">
           {(() => {
             const isThai = runner.nationality?.toLowerCase() === 'thai';
             return (
