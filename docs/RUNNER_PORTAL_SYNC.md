@@ -33,6 +33,7 @@ Edge Function ทำหน้าที่ระบายคิวอย่าง
 | ไฟล์ | หน้าที่ |
 |---|---|
 | `supabase_schema_update_v15_add_runner_portal_sync.sql` | ตาราง 3 ตัว + trigger + ฟังก์ชันจองงาน |
+| `supabase_schema_update_v16_add_nationality_to_runner_portal_sync.sql` | เพิ่ม `nationality` เข้า trigger (รันหลัง v15) |
 | `supabase/functions/_shared/rpSign.ts` | canonical string + ลายเซ็น HMAC |
 | `supabase/functions/_shared/rpMapping.ts` | แปลงค่าจากคอลัมน์ของเราเป็นฟิลด์ของ RunnerPortal |
 | `supabase/functions/runner-portal-sync/index.ts` | ระบายคิว ตีความคำตอบ |
@@ -62,7 +63,7 @@ supabase secrets set RP_KEY_ID=kadn-wallet-bs10 RP_SECRET=... RP_EVENT=bangsaen1
 
 ## 3. ขั้นตอนติดตั้ง
 
-1. รัน `supabase_schema_update_v15_add_runner_portal_sync.sql` ใน Supabase SQL Editor
+1. รัน `supabase_schema_update_v15_add_runner_portal_sync.sql` แล้วตามด้วย `..._v16_...sql` ใน Supabase SQL Editor
 2. ตั้ง secrets ตามตารางข้างบน
 3. `supabase functions deploy runner-portal-sync`
 4. **ตรวจลายเซ็นก่อน** เปิด `GET https://<project>.supabase.co/functions/v1/runner-portal-sync`
@@ -85,6 +86,7 @@ supabase secrets set RP_KEY_ID=kadn-wallet-bs10 RP_SECRET=... RP_EVENT=bangsaen1
 | `last_name` | `last_name` | trim |
 | `gender` | `gender` | `male`→`M`, `female`→`F` |
 | `shirt` | `shirt_size` | ดึงเฉพาะไซซ์: `"VIP L = 40"` → `"L"`, `"M (40*27)"` → `"M"` |
+| `nationality` | `nationality` | ส่งตามที่มี ไม่มีการแปลง (RunnerPortal ไม่ normalize เป็น ISO code) |
 | เลขบัตรที่ admin พิมพ์ | `id_card_number` | ส่งแยกทันที ดูหัวข้อ 6 |
 
 **ส่งเฉพาะฟิลด์ที่เปลี่ยนจริง** ฟิลด์ที่ไม่ได้ส่ง RunnerPortal จะไม่แตะต้อง
@@ -108,10 +110,17 @@ supabase secrets set RP_KEY_ID=kadn-wallet-bs10 RP_SECRET=... RP_EVENT=bangsaen1
 ### ฟิลด์ที่ไม่ส่ง
 
 - `bib` — เป็นกุญแจ ไม่ใช่ค่า ดูหัวข้อ 5
-- `nationality`, `age_category`, `race_kit`, `block`, `wave_start`, `note`, `top50` ฯลฯ —
+- `age_category`, `race_kit`, `block`, `wave_start`, `note`, `top50` ฯลฯ —
   RunnerPortal ไม่รับเขียน หรือไม่มีฟิลด์คู่กัน
 - `registration_status` — RunnerPortal มี (`registered`/`cancelled`/`transferred`/`deferred`/`no_show`)
   แต่ **ระบบเราไม่มีคอลัมน์นี้** ถ้าผู้จัดต้องยกเลิกนักวิ่งผ่านระบบนี้ ต้องเพิ่มคอลัมน์ก่อน
+- `email`, `phone`, `date_of_birth`, `first_name_th`, `last_name_th`, `category`,
+  `distance_meters`, `emergency_contact_name`, `emergency_contact_phone`, `city`, `province` —
+  RunnerPortal รับได้ (ยืนยันจาก `writable_fields` ที่ตอบกลับจริง) **แต่ระบบเราไม่มีข้อมูลนี้เลย**
+  ไม่มีคอลัมน์ ไม่มีช่องในฟอร์ม พักไว้ก่อนตามที่ตกลง (3 ก.ย. 2569) — จะเพิ่มได้ต่อเมื่อมีคนตัดสินใจ
+  เก็บข้อมูลเหล่านี้ในระบบก่อน
+- `wallet_pass_id` — เรามีข้อมูลอยู่แล้ว (`google_wallet_pass_id`) แต่ยังไม่ส่ง เพราะที่มาของค่า
+  คือระบบสร้าง pass ไม่ใช่ admin แก้ไข ต้องคิด flow แยกต่างหาก (ดู `walletpassidTH.md`) — พักไว้ก่อน
 
 ---
 

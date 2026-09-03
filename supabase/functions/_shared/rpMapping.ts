@@ -19,7 +19,7 @@
 
 /** Columns whose change is worth sending. Must stay in step with the
  *  rp_enqueue_runner_edit() trigger, which decides what gets queued at all. */
-export const WATCHED_COLUMNS = ['first_name', 'last_name', 'gender', 'shirt'] as const;
+export const WATCHED_COLUMNS = ['first_name', 'last_name', 'gender', 'shirt', 'nationality'] as const;
 export type WatchedColumn = (typeof WATCHED_COLUMNS)[number];
 
 /** The only values RunnerPortal matches for registration_status. Unused for now
@@ -96,6 +96,22 @@ export function mapName(value: unknown): string | null {
 }
 
 /**
+ * Nationality, passed through as-is.
+ *
+ * RunnerPortal's own data dictionary says this field is free text: "As
+ * supplied. Not normalised to ISO codes." There is no enum to validate
+ * against, so unlike gender or shirt_size nothing here can actually be
+ * "unreadable" -- any non-empty string is a value they will accept, 'N/A'
+ * included, since that is a genuine value some of our runners carry. A blank
+ * edit is dropped rather than sent, the same as a blank name: we have no case
+ * for clearing this field.
+ */
+export function mapNationality(value: unknown): string | null {
+  const nationality = text(value).trim();
+  return nationality.length > 0 ? nationality : null;
+}
+
+/**
  * A national ID or passport number the admin just typed, or null if it does not
  * read as either.
  *
@@ -148,6 +164,7 @@ export function mapRunnerChanges(changes: RunnerChanges): MappedRecord {
   take('last_name', 'last_name', mapName, 'นามสกุลว่าง จึงไม่ส่ง');
   take('gender', 'gender', mapGender, 'แปลงเป็น M/F ไม่ได้ จึงไม่ส่ง (ไม่เดาค่าให้)');
   take('shirt', 'shirt_size', mapShirtSize, 'อ่านไซซ์เสื้อไม่ออก จึงไม่ส่ง');
+  take('nationality', 'nationality', mapNationality, 'สัญชาติว่าง จึงไม่ส่ง');
 
   return { fields, dropped };
 }
