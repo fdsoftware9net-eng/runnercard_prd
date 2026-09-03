@@ -29,10 +29,11 @@ export const RP_REGISTRATION_STATUSES = [
   'registered', 'cancelled', 'transferred', 'deferred', 'no_show',
 ] as const;
 
-/** Shirt sizes we will forward verbatim. Everything actually in our data is
- *  here; 'N/A' deliberately is not, so those rows drop the field. */
+/** Shirt sizes we will forward verbatim. 'N/A' deliberately is not here, and
+ *  that is the value 93% of this event's runners carry, so most edits simply
+ *  have no size to send. */
 const SHIRT_SIZES = new Set([
-  '2XS', 'XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', '3XL', '4XL', '5XL',
+  '4XS', '3XS', '2XS', 'XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', '3XL', '4XL', '5XL',
 ]);
 
 const GENDERS: Record<string, string> = {
@@ -60,9 +61,29 @@ export function mapGender(value: unknown): string | null {
   return GENDERS[key] ?? null;
 }
 
-/** 'M (40*27)' -> 'M'. 'N/A' -> null. */
+/**
+ * The size on its own, or null when the column does not hold one.
+ *
+ * The column carries the size with whatever else the source spreadsheet
+ * attached to it, and the shape differs per event:
+ *
+ *   'VIP L = 40'          -> 'L'     (Bangsaen10 2026: size then chest width)
+ *   'VIP 3XS (KID) = 30'  -> '3XS'
+ *   'M (40*27)'           -> 'M'     (Bangsaen21 2025: size then measurements)
+ *   'N/A' / ''            -> null
+ *
+ * The leading VIP marks the shirt line, not the size, so it is dropped —
+ * RunnerPortal's shirt_size wants the size alone. Anything that does not end up
+ * matching a known size is returned as null and therefore never sent, which is
+ * the only safe answer: an unreadable value makes them reject the whole record.
+ */
 export function mapShirtSize(value: unknown): string | null {
-  const size = text(value).split('(')[0].trim().toUpperCase().replace(/\s+/g, '');
+  const size = text(value)
+    .replace(/^\s*VIP\b/i, '')   // shirt line, not size
+    .split(/[(=]/)[0]            // drop measurements, however they are attached
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '');
   return SHIRT_SIZES.has(size) ? size : null;
 }
 
