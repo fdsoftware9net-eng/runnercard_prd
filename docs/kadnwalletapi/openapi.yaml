@@ -1,0 +1,615 @@
+openapi: 3.1.0
+
+# ⚠️ Phase 1 (outbound) and phase 2 (inbound) are both implemented. The inbound
+# endpoint is marked x-status: not-enabled — it exists and is tested, but no key
+# carries the registrations:write scope yet, so it answers 403 until we grant it.
+#
+# HMAC signing cannot be expressed in an OpenAPI security scheme, so a generated
+# client will NOT sign requests correctly on its own. Read section 2 of
+# api-reference.md and use the code in samples/ for the signing layer.
+
+info:
+  title: RunnerPortal Partner API
+  version: "1.0.0"
+  summary: Registration sync between RunnerPortal and its registration partner.
+  description: |
+    Lets a registration partner (Thairun) pull start-list corrections made by
+    race staff, confirm they applied them, and reconcile their copy of the
+    start list.
+
+    **Authentication is HMAC-SHA256 request signing.** Every request except
+    `/v1/health` carries four headers — `X-RP-Key-Id`, `X-RP-Timestamp`,
+    `X-RP-Nonce`, `X-RP-Signature` — where the signature is computed over a
+    six-line canonical string. See `api-reference.md` §2 for the exact
+    construction and two worked examples, and `samples/` for working code in
+    Node and Python.
+
+    **An ack means "applied", not "received".** See `POST /v1/changes/ack`.
+  contact:
+    name: RunnerPortal partner integrations
+  x-related-documents:
+    - api-reference.md
+    - integration-guide-TH.md
+    - data-dictionary.md
+    - security-pdpa.md
+
+servers:
+  - url: https://runner-portal-partner-api-382283506828.asia-southeast3.run.app
+    description: |
+      The deployed service. Sandbox and production share this URL — which one
+      you are in is a property of your KEY, not the host. A sandbox key is
+      scoped to a test event containing invented runners.
+
+tags:
+  - name: changes
+    description: Corrections made by race staff, and confirming you applied them.
+  - name: registrations
+    description: The current start list.
+  - name: system
+    description: Liveness.
+
+security:
+  - RpSignature: []
+
+paths:
+  /v1/health:
+    get:
+      tags: [system]
+      summary: Liveness probe
+      description: Unauthenticated. Does not check the database.
+      security: []
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, const: true }
+                  service: { type: string, const: partner-api }
+
+  /v1/changes:
+    get:
+      tags: [changes]
+      summary: Corrections waiting for you
+      description: |
+        Returns entries with corrections you have not yet acknowledged, grouped
+        one item per runner.
+
+        **An entry may appear on two consecutive pages** when its changes
+        straddle a page boundary — paging is over individual changes. Treat every
+        item as an upsert, never an insert. Nothing is lost or double-applied,
+        because acks are per `change_id`.
+
+        **`is_timing_critical: true` must be acted on before the start gun** or
+        that runner records no time for the race.
+      operationId: listChanges
+      parameters:
+        - name: status
+          in: query
+          description: '`pending` = not yet acked by you. `all` = including acked.'
+          schema: { type: string, enum: [pending, all], default: pending }
+        - name: since
+          in: query
+          description: Opaque cursor from a previous response's `next_cursor`. Never construct one.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - name: all_fields
+          in: query
+          description: Include fields normally filtered out for your partner type.
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: A page of pending corrections
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChangesPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/changes/ack:
+    post:
+      tags: [changes]
+      summary: Confirm you applied corrections
+      description: |
+        🔴 **Ack AFTER applying, never on receipt.** An ack removes the
+        correction from the queue our race staff watch. Acking on receipt and
+        then failing to apply leaves us believing a runner is fixed while you
+        hold the old value — and nothing later would catch it.
+
+        **A partial batch returns 200**, not an error. Read `results` per item;
+        do not branch on the HTTP status alone.
+
+        **Retries are safe** — the write only fills an empty slot, so re-acking
+        returns `already_acked`. Note that a retry still needs a fresh nonce and
+        signature.
+      operationId: ackChanges
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [change_ids]
+              properties:
+                change_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 1000
+                  items: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Per-item outcomes. Includes partially successful batches.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  acked:
+                    type: integer
+                    description: How many were settled by this call.
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        change_id: { type: string, format: uuid }
+                        status:
+                          type: string
+                          enum: [acked, already_acked, unknown, forbidden]
+                          description: '`already_acked` is success. `unknown`/`forbidden` mean our records disagree — worth an alert.'
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/registrations:
+    get:
+      tags: [registrations]
+      summary: The current start list
+      description: |
+        For checking your copy or recovering from a bad state. Cancelled and
+        other inactive entries are excluded unless `include_inactive=true` —
+        treating a cancellation as an entry leads to over-ordered shirts and
+        bibs printed for people who will not come.
+
+        This is not a substitute for `/v1/changes`: it shows current state but
+        not what changed, why, or whether a bib move is timing-critical.
+      operationId: listRegistrations
+      parameters:
+        - name: since
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - name: category
+          in: query
+          description: One race category, e.g. `Run 42.195`.
+          schema: { type: string }
+        - name: include_inactive
+          in: query
+          description: Include cancelled / transferred / deferred / no-show.
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: A page of the start list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RegistrationsPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /v1/registrations/import:
+    post:
+      tags: [registrations]
+      summary: "[PHASE 2 — BUILT, NOT YET ENABLED] Push registrations to us"
+      x-status: not-enabled
+      description: |
+        ⚠️ **Implemented and tested, but switched off.** Answers `403` until we
+        grant your key the `registrations:write` scope. Ask for it on your
+        sandbox key when you are ready.
+
+        Replaces the CSV/XLSX file exchange. Runs the same import code as our
+        file importer, so the refusals below are that behaviour, not a
+        re-description of it.
+
+        Each record routes to a race by its `category` — an event-year is
+        several races, one per distance. An unmatched category is rejected
+        rather than guessed.
+
+        **Three refusals by design:**
+        1. It will not overwrite a field our staff corrected at the expo — it
+           reports the disagreement instead, so a fresh export the morning after
+           cannot wipe a day of counter work.
+        2. It will not accept two registered runners on one bib.
+        3. It will not blank a stored value because a column was omitted. Omitting
+           a field means "no change"; send an explicit `null` to clear it.
+
+        `mode: snapshot` reports entries you no longer send but never cancels
+        them automatically.
+      operationId: importRegistrations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, year, records]
+              properties:
+                event: { type: string, example: bangsaen42 }
+                year: { type: integer, example: 2026 }
+                mode: { type: string, enum: [upsert, snapshot], default: upsert }
+                dry_run:
+                  type: boolean
+                  default: false
+                  description: Returns the same report and writes nothing. Use it first, every time your export changes.
+                records:
+                  type: array
+                  items: { $ref: "#/components/schemas/InboundRecord" }
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: |
+            Unique per logical batch, 8–200 chars. Required. A retry with the same
+            key replays the original report; the same key with a different payload
+            is refused with 409. Separate from the nonce — a retry is deliberately
+            not byte-identical, so replay protection does not cover it.
+          schema: { type: string, minLength: 8, maxLength: 200 }
+      responses:
+        "200":
+          description: Per-record report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dry_run: { type: boolean }
+                  inserted: { type: integer }
+                  updated: { type: integer }
+                  skipped_overridden:
+                    type: integer
+                    description: Fields our staff corrected. Your value was NOT applied — treat as a to-do on your side.
+                  blocked: { type: integer }
+
+  /v1/registrations/edits:
+    post:
+      tags: [registrations]
+      summary: Correct entries keyed by bib number
+      description: |
+        For a system that holds **bib numbers** rather than our
+        `source_record_id` — the Bangsaen10 runner-card/wallet system. Each
+        record names one entry by `event` + `year` + `bib_number` and carries
+        only the fields to change.
+
+        ⚠️ **Open only while your system is the source of truth.** After the
+        agreed cutover — when the organizer moves to editing in RunnerPortal —
+        every request returns `403 authority_moved` and changes nothing. That is
+        the integration ending normally. Do not retry it, and do not confuse it
+        with `forbidden`, which means the key itself is wrong.
+
+        **Omitted, null and unreadable are three different things**, and this
+        endpoint is deliberately stricter than `/v1/registrations/import`:
+        omitting a field means "no change"; an explicit `null` clears it; a
+        value we cannot read **rejects that record** rather than being stored as
+        null. `registration_status` is matched exactly and never guessed — a
+        typo must not silently reinstate a withdrawn runner.
+
+        **What cannot be changed:** `bib_number` (it is the key, and a real bib
+        move is a timing-chip decision); an `id_card_number` that already exists
+        may be corrected but never erased; an edit may not leave a runner with
+        no name in any script.
+
+        One bad record never discards the good ones — outcomes are per record.
+      operationId: editRegistrationsByBib
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, year, records]
+              properties:
+                event: { type: string, example: bangsaen10 }
+                year: { type: integer, example: 2026 }
+                dry_run:
+                  type: boolean
+                  default: false
+                  description: Returns the identical report and writes nothing. Use it first, every time.
+                records:
+                  type: array
+                  maxItems: 5000
+                  items: { $ref: "#/components/schemas/BibEditRecord" }
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: |
+            Unique per logical batch, 8–200 chars. Required. A retry with the same
+            key replays the original report; the same key with a different payload
+            is refused with 409.
+          schema: { type: string, minLength: 8, maxLength: 200 }
+      responses:
+        "200":
+          description: Per-record report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dry_run: { type: boolean }
+                  batch_id: { type: string, nullable: true }
+                  received: { type: integer }
+                  updated: { type: integer }
+                  unchanged: { type: integer }
+                  not_found: { type: integer }
+                  ambiguous: { type: integer }
+                  rejected: { type: integer }
+                  writable_fields:
+                    type: array
+                    items: { type: string }
+                    description: What this key may write. Diff it against what you sent.
+                  results:
+                    type: array
+                    items: { $ref: "#/components/schemas/BibEditOutcome" }
+        "403":
+          description: |
+            `authority_moved` — the window is closed, as agreed. Or `forbidden` —
+            the key lacks `registrations:edit`, or named an event or year it is
+            not scoped to.
+        "409":
+          description: |
+            `duplicate_bib_in_payload` — one bib appeared twice, so order would
+            decide the winner. Or `idempotency_key_reused`.
+
+components:
+  securitySchemes:
+    RpSignature:
+      type: apiKey
+      in: header
+      name: X-RP-Signature
+      description: |
+        ⚠️ **This declaration is a formality — OpenAPI cannot express HMAC
+        signing.** A generated client will not sign correctly by itself.
+
+        Four headers are required on every authenticated request:
+        `X-RP-Key-Id`, `X-RP-Timestamp` (Unix seconds), `X-RP-Nonce` (single
+        use), `X-RP-Signature` (base64 HMAC-SHA256 over the canonical string).
+
+        See api-reference.md §2 and samples/.
+
+  responses:
+    BadRequest:
+      description: Malformed request. Fix and do not retry.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: |
+        Signature, key or timestamp problem. **Deliberately does not say which** —
+        that would let someone probe which keys exist. The precise reason is in
+        our log; quote your `request_id` when asking.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Valid key, but it lacks the scope for this endpoint.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RateLimited:
+      description: Too many requests. Wait for `Retry-After` seconds.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        detail: { type: string }
+
+    Change:
+      type: object
+      properties:
+        change_id:
+          type: string
+          format: uuid
+          description: Ack this exact value.
+        field: { type: string, example: bib_number }
+        old_value:
+          type: [string, "null"]
+          description: Always a string, even for numeric fields. Cast using `field`.
+        new_value:
+          type: [string, "null"]
+        bib_change_kind:
+          type: [string, "null"]
+          enum: [typo_fix, reassignment, null]
+          description: |
+            `typo_fix` — our digits were wrong; the runner's physical bib never
+            changed. Not urgent.
+            `reassignment` — the runner is holding a different bib now; the timing
+            chip must move. Urgent.
+        is_timing_critical:
+          type: boolean
+          description: 🔴 true = must reach the timing system before the start gun.
+        reason:
+          type: [string, "null"]
+          description: Free text written by a person, Thai or English. Display it; never parse it.
+        changed_at: { type: string, format: date-time }
+
+    ChangeGroup:
+      type: object
+      properties:
+        record_id:
+          type: [string, "null"]
+          description: Your own record id. May be null for an entry created by our staff.
+        registration_id: { type: string, format: uuid }
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/Change" }
+        record:
+          $ref: "#/components/schemas/RegistrationRecord"
+
+    RegistrationRecord:
+      type: object
+      description: |
+        The entry's full current state, containing only the fields granted to
+        your key. See data-dictionary.md for every field.
+
+        ⚠️ `bib_number` is a **string** — leading zeros and letters occur.
+        ⚠️ `id_card_number` may be a **passport** number (~37% of real data), so
+        never validate it as 13 numeric digits.
+        ⚠️ `date_of_birth` is a calendar date — do not convert through a timezone.
+      additionalProperties: true
+      properties:
+        bib_number: { type: [string, "null"] }
+        category: { type: [string, "null"] }
+        distance_meters: { type: [integer, "null"], description: metres }
+        registration_status:
+          type: string
+          enum: [registered, cancelled, transferred, deferred, no_show]
+        first_name: { type: [string, "null"] }
+        last_name: { type: [string, "null"] }
+        first_name_th: { type: [string, "null"] }
+        last_name_th: { type: [string, "null"] }
+        gender: { type: [string, "null"], enum: [M, F, X, U, null] }
+        nationality: { type: [string, "null"] }
+        shirt_size: { type: [string, "null"] }
+        email: { type: [string, "null"], description: NOT unique — 26% are shared. Never a merge key. }
+        phone: { type: [string, "null"] }
+        city: { type: [string, "null"] }
+        province: { type: [string, "null"] }
+        date_of_birth: { type: [string, "null"], format: date }
+        id_card_number: { type: [string, "null"], description: National ID OR passport. Opaque string. }
+
+    ChangesPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ChangeGroup" }
+        next_cursor:
+          type: [string, "null"]
+          description: Opaque. Store it, send it back as `since`. Never parse or construct one.
+        has_more: { type: boolean }
+        fields:
+          type: array
+          items: { type: string }
+          description: The fields you were actually shown.
+
+    RegistrationsPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              record_id: { type: [string, "null"] }
+              registration_id: { type: string, format: uuid }
+              record: { $ref: "#/components/schemas/RegistrationRecord" }
+        next_cursor: { type: [string, "null"] }
+        has_more: { type: boolean }
+        fields:
+          type: array
+          items: { type: string }
+
+    BibEditRecord:
+      type: object
+      required: [bib_number]
+      description: |
+        `bib_number` identifies the entry and is never itself writable. Every
+        other property is optional: omit to leave unchanged, send `null` to
+        clear.
+      properties:
+        bib_number: { type: string, example: "10234" }
+        first_name: { type: string, nullable: true }
+        last_name: { type: string, nullable: true }
+        first_name_th: { type: string, nullable: true }
+        last_name_th: { type: string, nullable: true }
+        gender: { type: string, enum: [M, F, X, U], nullable: true }
+        date_of_birth:
+          type: string
+          format: date
+          nullable: true
+          description: An unreadable value rejects the record; it is never stored as null.
+        id_card_number:
+          type: string
+          nullable: true
+          description: |
+            National ID or passport — never validated as 13 digits, since roughly
+            37% of real data is passports. May be corrected, but one that already
+            exists may not be erased.
+        category: { type: string, nullable: true }
+        distance_meters: { type: integer, nullable: true }
+        email: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        emergency_contact_name: { type: string, nullable: true }
+        emergency_contact_phone: { type: string, nullable: true }
+        shirt_size: { type: string, nullable: true }
+        registration_status:
+          type: string
+          enum: [registered, cancelled, transferred, deferred, no_show]
+          description: Matched exactly. Unrecognised wording is rejected, never defaulted.
+
+    BibEditOutcome:
+      type: object
+      properties:
+        bib_number: { type: string, nullable: true }
+        outcome:
+          type: string
+          enum: [updated, unchanged, not_found, ambiguous_bib, rejected]
+          description: |
+            `ambiguous_bib` means more than one entry carries that bib — we
+            refuse rather than guess. Tell us if you see it.
+        changed:
+          type: array
+          items: { type: string }
+        overrides_cleared:
+          type: array
+          items: { type: string }
+          description: Fields a RunnerPortal admin had corrected by hand that your value replaced.
+        ignored:
+          type: array
+          items: { type: string }
+          description: Fields you sent that this key may not write. Not fatal — check your mapping.
+        reason: { type: string }
+
+    InboundRecord:
+      type: object
+      description: One registration you send us (phase 2).
+      required: [source_record_id]
+      properties:
+        source_record_id:
+          type: string
+          description: |
+            Your stable key for this entry. **Must not change for the life of the
+            entry** — if it does, we create a duplicate runner.
+        bib_number: { type: [string, "null"] }
+        first_name: { type: [string, "null"] }
+        last_name: { type: [string, "null"] }
+        first_name_th: { type: [string, "null"] }
+        last_name_th: { type: [string, "null"] }
+        gender: { type: [string, "null"] }
+        date_of_birth: { type: [string, "null"], format: date }
+        id_card_number: { type: [string, "null"] }
+        nationality: { type: [string, "null"] }
+        category: { type: [string, "null"] }
+        distance_meters: { type: [integer, "null"] }
+        email: { type: [string, "null"] }
+        phone: { type: [string, "null"] }
+        shirt_size: { type: [string, "null"] }
+        registration_status: { type: [string, "null"] }

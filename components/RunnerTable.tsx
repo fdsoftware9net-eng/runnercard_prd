@@ -2,6 +2,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Runner } from '../types';
 import { getRunners, updateRunner as updateRunnerService, logUserActivity } from '../services/supabaseService';
+import {
+  drainRunnerPortalQueue,
+  sendIdCardToRunnerPortal,
+  getRunnerPortalStatus,
+  describeDrainSummary,
+  type RunnerPortalStatus,
+} from '../services/runnerPortalService';
 import { hashNationalId } from '../utils/hashing';
 import Button from './Button';
 import Input from './Input';
@@ -110,6 +117,10 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
     new Set(AVAILABLE_COLUMNS.map(col => col.key))
   );
   const [showColumnSelector, setShowColumnSelector] = useState(false);
+  // What RunnerPortal made of the last save, and the standing state of that
+  // integration (cutover reached, dry run, anything waiting for a person).
+  const [runnerPortalNotices, setRunnerPortalNotices] = useState<string[]>([]);
+  const [runnerPortalStatus, setRunnerPortalStatus] = useState<RunnerPortalStatus | null>(null);
 
   const fetchRunners = useCallback(async (
     page: number,
@@ -133,6 +144,67 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
     fetchRunners(currentPage, RUNNERS_PER_PAGE, searchTerm);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, refreshDataTrigger, currentPage]); // Add currentPage to dependencies
+
+  const refreshRunnerPortalStatus = useCallback(async () => {
+    const { data } = await getRunnerPortalStatus();
+    if (data) setRunnerPortalStatus(data);
+  }, []);
+
+  useEffect(() => {
+    // Not critical to the page: if the integration is unreachable the table
+    // still works, the banner just does not appear.
+    refreshRunnerPortalStatus();
+  }, [refreshRunnerPortalStatus]);
+
+  /**
+   * Push this edit on to RunnerPortal and report back what happened.
+   *
+   * The edit is already saved and already queued by then — a trigger on the
+   * runners table does that inside the same transaction — so nothing here can
+   * lose a correction. This only decides how soon it goes out and what the
+   * admin is told.
+   *
+   * Two things do need saying out loud:
+   *  - A changed bib cannot be sent at all. Bib is the key RunnerPortal matches
+   *    on, and a real bib move has to reach the timing partner before the gun,
+   *    so a person has to make that change on their side.
+   *  - The ID card number is not stored anywhere, only its hash, so it cannot
+   *    be retried later. If that one call fails the admin has to save again.
+   */
+  const syncEditToRunnerPortal = useCallback(async (
+    runnerId: string,
+    bibChanged: boolean,
+    rawIdCard: string,
+  ) => {
+    const notices: string[] = [];
+
+    if (bibChanged) {
+      notices.push('⚠️ การเปลี่ยนเลข BIB ไม่ได้ถูกส่งไปยัง RunnerPortal — เลข BIB เป็นกุญแจที่เขาใช้จับคู่และผูกกับระบบจับเวลา ต้องแจ้งเจ้าหน้าที่ RunnerPortal โดยตรง');
+    }
+
+    const { data: summary, error: drainError } = await drainRunnerPortalQueue();
+
+    if (drainError) {
+      notices.push(`RunnerPortal: ยังส่งไม่สำเร็จ (${drainError}) — ข้อมูลถูกบันทึกไว้ในคิวแล้ว ระบบจะส่งให้เองในภายหลัง`);
+    } else if (summary) {
+      const line = describeDrainSummary(summary);
+      if (line) notices.push(line);
+      for (const note of summary.notes) notices.push(`RunnerPortal: ${note}`);
+    }
+
+    // Sent on its own, and only when the admin actually typed a new number.
+    if (rawIdCard.trim() && !summary?.halted) {
+      const { data: idResult, error: idError } = await sendIdCardToRunnerPortal(runnerId, rawIdCard.trim());
+      if (idError || !idResult?.sent) {
+        notices.push(`⚠️ เลขบัตรประชาชน/พาสปอร์ต: ${idResult?.reason ?? idError ?? 'ส่งไม่สำเร็จ'}`);
+      } else if (idResult.overrides_cleared?.length) {
+        notices.push(`RunnerPortal: เลขบัตรที่เจ้าหน้าที่เขาแก้ไว้เองถูกแทนที่ด้วยค่าจากระบบเรา (${idResult.overrides_cleared.join(', ')})`);
+      }
+    }
+
+    setRunnerPortalNotices(notices);
+    await refreshRunnerPortalStatus();
+  }, [refreshRunnerPortalStatus]);
 
   // Function to compare form state with original runner data
   const areFormsEqual = useCallback((obj1: Partial<Runner>, obj2: Runner | null, rawIdCard?: string): boolean => {
@@ -300,6 +372,14 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
 
     setLoading(true); // Use global loading state for modal too
     setUpdateError(null);
+    setRunnerPortalNotices([]);
+
+    // Captured now because the modal state is cleared before the sync runs, and
+    // the raw ID card number exists nowhere else — the row keeps only its hash.
+    const runnerIdForSync = isEditingRunner.id;
+    const bibChangedForSync =
+      String(editForm.bib ?? '').trim() !== String(isEditingRunner.bib ?? '').trim();
+    const rawIdCardForSync = idCardNumber.trim();
 
     // Prepare update data
     const updateData: Partial<Runner> = { ...editForm };
@@ -394,6 +474,7 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
         setIdCardNumber('');
         setHasFormChanges(false); // Reset changes flag on successful save
         await fetchRunners(currentPage, RUNNERS_PER_PAGE, searchTerm); // Refetch current page
+        await syncEditToRunnerPortal(runnerIdForSync, bibChangedForSync, rawIdCardForSync);
       } else { // No data returned, but no error - means no effective changes by DB.
         // Frontend detected changes (hasFormChanges was true), but DB considered them a no-op.
         // This is not an error, so we proceed as if successful from a user perspective.
@@ -412,9 +493,10 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
         setIdCardNumber('');
         setHasFormChanges(false); // Reset changes flag
         await fetchRunners(currentPage, RUNNERS_PER_PAGE, searchTerm); // Still refresh to ensure consistency in case of subtle sync issues
+        await syncEditToRunnerPortal(runnerIdForSync, bibChangedForSync, rawIdCardForSync);
       }
     }
-  }, [isEditingRunner, editForm, idCardNumber, searchTerm, fetchRunners, hasFormChanges, currentPage]);
+  }, [isEditingRunner, editForm, idCardNumber, searchTerm, fetchRunners, hasFormChanges, currentPage, syncEditToRunnerPortal]);
 
   const totalPages = useMemo(() => Math.ceil(totalRunnersCount / RUNNERS_PER_PAGE), [totalRunnersCount]);
   // `paginatedRunners` is no longer needed; `runners` state now directly holds the current page's data.
@@ -470,6 +552,70 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
   return (
     <div className="p-6 bg-gray-800 rounded-lg shadow-md">
       <h2 className="text-2xl font-bold text-white mb-4">Runner Management</h2>
+
+      {/* RunnerPortal integration — standing state.
+          authority_moved is deliberately styled as information, not as an
+          error: it means the agreed cutover has passed and RunnerPortal is the
+          source of truth now. forbidden, right below it, IS an error. */}
+      {runnerPortalStatus?.state.authority_moved && (
+        <div className="mb-4 p-3 rounded-md bg-amber-900/40 border border-amber-600 text-amber-100 text-sm">
+          <strong>RunnerPortal ปิดรับการแก้ไขจากระบบนี้แล้ว</strong>
+          {runnerPortalStatus.state.authority_moved_at && (
+            <span className="opacity-80"> (ตั้งแต่ {new Date(runnerPortalStatus.state.authority_moved_at).toLocaleString('th-TH')})</span>
+          )}
+          <div className="mt-1 opacity-90">
+            ตั้งแต่นี้ไปผู้จัดแก้ข้อมูลนักวิ่งที่ RunnerPortal โดยตรง การแก้ไขในหน้านี้จะไม่ถูกส่งไปให้เขาอีก — เป็นการจบการเชื่อมต่อตามที่ตกลงกันไว้ ไม่ใช่ข้อผิดพลาด
+          </div>
+        </div>
+      )}
+
+      {runnerPortalStatus?.state.last_forbidden_at && !runnerPortalStatus.state.authority_moved && (
+        <div className="mb-4 p-3 rounded-md bg-red-900/50 border border-red-600 text-red-100 text-sm">
+          <strong>RunnerPortal ปฏิเสธ key ของเรา (403 forbidden)</strong>
+          <div className="mt-1 opacity-90">
+            key ไม่มีสิทธิ์ registrations:edit หรือ event/ปี ไม่ตรงกับ key — ต้องแจ้ง RunnerPortal ให้แก้ การรอเฉย ๆ ไม่ช่วย
+          </div>
+        </div>
+      )}
+
+      {runnerPortalStatus && !runnerPortalStatus.state.authority_moved && runnerPortalStatus.dry_run && (
+        <div className="mb-4 p-3 rounded-md bg-blue-900/40 border border-blue-600 text-blue-100 text-sm">
+          RunnerPortal อยู่ในโหมดทดสอบ (<code>dry_run</code>) — ส่งไปแล้วได้รายงานครบ แต่ยังไม่เขียนข้อมูลจริงที่ฝั่งเขา
+          {runnerPortalStatus.event && <span className="opacity-80"> · งาน {runnerPortalStatus.event}</span>}
+        </div>
+      )}
+
+      {!!runnerPortalStatus?.counts?.failed || !!runnerPortalStatus?.counts?.skipped ? (
+        <div className="mb-4 p-3 rounded-md bg-yellow-900/30 border border-yellow-700 text-yellow-100 text-sm">
+          มีรายการที่ต้องให้คนตรวจสอบ: ส่งไม่สำเร็จ {runnerPortalStatus?.counts?.failed ?? 0} รายการ ·
+          ไม่ได้ส่ง {runnerPortalStatus?.counts?.skipped ?? 0} รายการ
+          {(runnerPortalStatus?.attention?.length ?? 0) > 0 && (
+            <ul className="mt-2 space-y-1 list-disc list-inside opacity-90">
+              {runnerPortalStatus!.attention.slice(0, 5).map(row => (
+                <li key={row.id}>BIB {row.bib || '(ไม่มี)'} — {row.reason || row.outcome || 'ไม่ระบุ'}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
+      {/* What the last save produced. */}
+      {runnerPortalNotices.length > 0 && (
+        <div className="mb-4 p-3 rounded-md bg-gray-700 border border-gray-600 text-gray-100 text-sm">
+          <div className="flex justify-between items-start gap-4">
+            <ul className="space-y-1">
+              {runnerPortalNotices.map((notice, index) => <li key={index}>{notice}</li>)}
+            </ul>
+            <button
+              onClick={() => setRunnerPortalNotices([])}
+              className="text-gray-400 hover:text-white flex-shrink-0"
+              aria-label="ปิดข้อความ"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row justify-between items-center mb-6 space-y-4 sm:space-y-0 sm:space-x-4">
         <Input
