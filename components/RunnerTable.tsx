@@ -165,9 +165,9 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
    * admin is told.
    *
    * Two things do need saying out loud:
-   *  - A changed bib cannot be sent at all. Bib is the key RunnerPortal matches
-   *    on, and a real bib move has to reach the timing partner before the gun,
-   *    so a person has to make that change on their side.
+   *  - A changed bib is now sent as a bib_old/bib_new pair, and a spare runner
+   *    given a bib is sent as a new registration. Both are reported back by the
+   *    drain summary; we just add a line so the admin knows the move went out.
    *  - The ID card number is not stored anywhere, only its hash, so it cannot
    *    be retried later. If that one call fails the admin has to save again.
    */
@@ -179,7 +179,7 @@ const RunnerTable: React.FC<RunnerTableProps> = ({ refreshDataTrigger }) => {
     const notices: string[] = [];
 
     if (bibChanged) {
-      notices.push('⚠️ การเปลี่ยนเลข BIB ไม่ได้ถูกส่งไปยัง RunnerPortal — เลข BIB เป็นกุญแจที่เขาใช้จับคู่และผูกกับระบบจับเวลา ต้องแจ้งเจ้าหน้าที่ RunnerPortal โดยตรง');
+      notices.push('ℹ️ ส่งการเปลี่ยนเลข BIB ไปยัง RunnerPortal แล้ว (เป็นคู่ bib_old/bib_new) — ผลจะแสดงในสรุปด้านล่าง');
     }
 
     const { data: summary, error: drainError } = await drainRunnerPortalQueue();

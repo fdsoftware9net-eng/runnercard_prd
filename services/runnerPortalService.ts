@@ -18,6 +18,7 @@ const RUNNER_PORTAL_SYNC_EDGE_FUNCTION_URL = '/functions/v1/runner-portal-sync';
 /** Outcome of one queued edit, as RunnerPortal reported it. */
 export type RunnerPortalOutcome =
   | 'updated'
+  | 'created'
   | 'unchanged'
   | 'not_found'
   | 'ambiguous_bib'
@@ -26,6 +27,12 @@ export type RunnerPortalOutcome =
 export interface RunnerPortalDrainSummary {
   sent: number;
   updated: number;
+  /** new registrations pushed for spare runners that were just given a bib */
+  created: number;
+  /** rows whose bib moved (a subset of `updated`) */
+  bib_changed: number;
+  /** rows rejected because bib_new was already taken (a subset of `rejected`) */
+  bib_conflicts: number;
   unchanged: number;
   not_found: number;
   rejected: number;
@@ -157,6 +164,19 @@ export const getRunnerPortalStatus = async (): Promise<{ data?: RunnerPortalStat
 export const probeRunnerPortal = async (): Promise<{ data?: { http_status: number; interpretation: string; body: unknown; request_id: string | null }; error?: string }> =>
   callSyncFunction({ action: 'probe' }, 20_000);
 
+/**
+ * Hand-built dry-run call for the D1–D7 test sequence.
+ *
+ * Sends exactly the records given, always as `dry_run: true`, and touches
+ * neither the queue nor any stored state. Returns RunnerPortal's raw response
+ * so a tester can read the per-record `outcome`, `writable_raw_fields`,
+ * `changed[]` and `ignored[]`. Not used by the normal save flow.
+ */
+export const testEditRunnerPortal = async (
+  records: Array<Record<string, unknown>>,
+): Promise<{ data?: { request_body: string; http_status: number; body: unknown; request_id: string | null; network_error: string | null }; error?: string }> =>
+  callSyncFunction({ action: 'test-edit', records }, 30_000);
+
 /** Turn a drain summary into one line for the admin, or null if there is
  *  nothing worth saying. */
 export const describeDrainSummary = (summary: RunnerPortalDrainSummary): string | null => {
@@ -166,9 +186,12 @@ export const describeDrainSummary = (summary: RunnerPortalDrainSummary): string 
 
   const parts: string[] = [];
   if (summary.updated > 0) parts.push(`อัพเดท ${summary.updated}`);
+  if (summary.created > 0) parts.push(`สร้างใหม่ ${summary.created}`);
+  if (summary.bib_changed > 0) parts.push(`ย้าย BIB ${summary.bib_changed}`);
   if (summary.unchanged > 0) parts.push(`ตรงกันอยู่แล้ว ${summary.unchanged}`);
   if (summary.not_found > 0) parts.push(`ไม่พบ BIB ${summary.not_found}`);
   if (summary.rejected > 0) parts.push(`ถูกปฏิเสธ ${summary.rejected}`);
+  if (summary.bib_conflicts > 0) parts.push(`BIB ปลายทางชนกัน ${summary.bib_conflicts}`);
   if (summary.ambiguous > 0) parts.push(`BIB ซ้ำ ${summary.ambiguous}`);
   if (summary.skipped > 0) parts.push(`ไม่ได้ส่ง ${summary.skipped}`);
   if (summary.retrying > 0) parts.push(`รอส่งใหม่ ${summary.retrying}`);
