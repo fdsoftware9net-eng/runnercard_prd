@@ -33,8 +33,10 @@ import {
   mapIdCardNumber,
   mapRunnerChanges,
   mergeChanges,
+  strongestOp,
   type DroppedField,
   type RunnerChanges,
+  type SyncOp,
 } from "../_shared/rpMapping.ts";
 
 const EDITS_PATH = "/v1/registrations/edits";
@@ -245,6 +247,10 @@ interface QueueRow {
   runner_id: string;
   bib: string;
   changes: RunnerChanges;
+  /** edit = keyed by bib_number; move = bib_old/bib_new pair; create = new
+   *  registration. Set by the rp_enqueue_runner_edit trigger (v17). Rows queued
+   *  before v17 have no column and read back as undefined -- treated as 'edit'. */
+  op: SyncOp | null;
   attempts: number;
   batch_id: string | null;
 }
@@ -261,6 +267,11 @@ interface BatchRow {
 interface DrainSummary {
   sent: number;
   updated: number;
+  created: number;
+  /** rows whose bib moved (a subset of `updated`). */
+  bib_changed: number;
+  /** rows rejected because bib_new was already taken (a subset of `rejected`). */
+  bib_conflicts: number;
   unchanged: number;
   not_found: number;
   rejected: number;
@@ -274,7 +285,8 @@ interface DrainSummary {
 }
 
 const emptySummary = (dryRun: boolean): DrainSummary => ({
-  sent: 0, updated: 0, unchanged: 0, not_found: 0, rejected: 0, ambiguous: 0,
+  sent: 0, updated: 0, created: 0, bib_changed: 0, bib_conflicts: 0,
+  unchanged: 0, not_found: 0, rejected: 0, ambiguous: 0,
   skipped: 0, retrying: 0, halted: false, dry_run: dryRun, batches: 0, notes: [],
 });
 
@@ -350,11 +362,19 @@ const drain = async (
 /**
  * Turn claimed rows into one request.
  *
- * Two things happen here that the response depends on. Rows for the same bib
- * are merged: the same bib twice in one payload is a 409, because RunnerPortal
- * will not let request order decide which value wins. And a row whose fields all
- * failed conversion is settled here rather than sent — see rpMapping.ts for why
- * dropping beats guessing.
+ * Things that happen here because the response depends on them:
+ *
+ *  - Rows for the same bib are merged. The same bib twice in one payload is a
+ *    409, because RunnerPortal will not let request order decide which value
+ *    wins.
+ *  - A row whose fields all failed conversion is settled here rather than sent
+ *    — see rpMapping.ts for why dropping beats guessing.
+ *  - `op` decides the record shape: an edit is keyed by `bib_number`; a move
+ *    and a create carry a `bib_old`/`bib_new` pair (bib_old "" for a create).
+ *  - `duplicate_bib_in_payload` counts BOTH sides of a move, so if one record
+ *    frees a bib another record then claims, RunnerPortal refuses the whole
+ *    request. Colliding records are held back for the next drain, which sends
+ *    them in a separate request.
  */
 const buildBatch = async (
   client: ServiceClient,
@@ -369,17 +389,46 @@ const buildBatch = async (
     else byBib.set(row.bib, [row]);
   }
 
-  const records: Array<Record<string, unknown>> = [];
-  const sendableRowIds: string[] = [];
   const now = new Date().toISOString();
 
-  for (const [bib, group] of byBib) {
-    const merged = mergeChanges(group.map((row) => row.changes));
-    const { fields, dropped } = mapRunnerChanges(merged);
+  // One entry per bib group that has something to send.
+  interface Built {
+    record: Record<string, unknown>;
+    rowIds: string[];
+    /** every bib number this record touches — for the collision check */
+    tokens: string[];
+  }
+  const built: Built[] = [];
 
-    if (Object.keys(fields).length === 0) {
-      // Nothing survived conversion, so there is no edit to express. Settle the
-      // rows with the reasons attached rather than sending an empty record.
+  for (const [bib, group] of byBib) {
+    const op = strongestOp(group.map((row) => row.op ?? "edit"));
+    const merged = mergeChanges(group.map((row) => row.changes));
+    const { fields, dropped, bibPair, fatal } = mapRunnerChanges(merged, op);
+    const rowIds = group.map((row) => row.id);
+
+    if (dropped.length > 0) {
+      await client
+        .from("runner_portal_sync_queue")
+        .update({ dropped_fields: dropped as unknown as Record<string, unknown>, updated_at: now })
+        .in("id", rowIds);
+    }
+
+    // The whole record cannot be expressed (bad bib token, or a create with no
+    // name). A person has to fix the source row.
+    if (fatal) {
+      summary.rejected += group.length;
+      await client
+        .from("runner_portal_sync_queue")
+        .update({ status: "failed", reason: fatal, updated_at: now })
+        .in("id", rowIds);
+      continue;
+    }
+
+    const noOtherFields = Object.keys(fields).length === 0;
+
+    // An edit with nothing left to say is settled, not sent. A bare bib move is
+    // still a real record even with no other field.
+    if (noOtherFields && !bibPair) {
       summary.skipped += group.length;
       await client
         .from("runner_portal_sync_queue")
@@ -391,19 +440,51 @@ const buildBatch = async (
           dropped_fields: dropped as unknown as Record<string, unknown>,
           updated_at: now,
         })
-        .in("id", group.map((row) => row.id));
+        .in("id", rowIds);
       continue;
     }
 
-    records.push({ bib_number: bib, ...fields });
-    for (const row of group) sendableRowIds.push(row.id);
+    const record: Record<string, unknown> = bibPair
+      ? { bib_old: bibPair.bib_old, bib_new: bibPair.bib_new, ...fields }
+      : { bib_number: bib, ...fields };
 
-    if (dropped.length > 0) {
-      await client
-        .from("runner_portal_sync_queue")
-        .update({ dropped_fields: dropped as unknown as Record<string, unknown>, updated_at: now })
-        .in("id", group.map((row) => row.id));
+    const tokens = bibPair
+      ? [bibPair.bib_old, bibPair.bib_new].filter((t) => t !== "")
+      : [bib];
+
+    built.push({ record, rowIds, tokens });
+  }
+
+  // Cross-record collision: a bib that appears in two records would make the
+  // outcome depend on array order, so RunnerPortal 409s the request. Keep the
+  // first record that uses a token; defer the rest to the next drain.
+  const claimedTokens = new Map<string, number>(); // token -> index that owns it
+  const records: Array<Record<string, unknown>> = [];
+  const sendableRowIds: string[] = [];
+  const deferredRowIds: string[] = [];
+
+  built.forEach((entry, index) => {
+    const clash = entry.tokens.some((t) => {
+      const owner = claimedTokens.get(t);
+      return owner !== undefined && owner !== index;
+    });
+    if (clash) {
+      deferredRowIds.push(...entry.rowIds);
+      return;
     }
+    for (const t of entry.tokens) claimedTokens.set(t, index);
+    records.push(entry.record);
+    sendableRowIds.push(...entry.rowIds);
+  });
+
+  if (deferredRowIds.length > 0) {
+    await client
+      .from("runner_portal_sync_queue")
+      .update({ status: "pending", batch_id: null, updated_at: now })
+      .in("id", deferredRowIds);
+    summary.notes.push(
+      `${deferredRowIds.length} รายการมีเลข BIB ทับกับรายการอื่นในชุดเดียวกัน — เลื่อนไปส่งแยกในรอบถัดไป (กัน duplicate_bib_in_payload)`,
+    );
   }
 
   if (records.length === 0) return null;
@@ -513,7 +594,7 @@ const sendBatch = async (
     await failBatch(client, batch, result, "forbidden");
     await settleRows({
       status: "failed",
-      reason: "403 forbidden — key ไม่มีสิทธิ์ registrations:edit หรือ event/ปี ไม่ตรงกับ key ต้องให้คนแก้ค่า ไม่ใช่รอ",
+      reason: "403 forbidden — key ไม่มีสิทธิ์ (registrations:edit หรือ registrations:bib สำหรับย้าย/สร้าง BIB) หรือ event/ปี ไม่ตรงกับ key ต้องให้คนแก้ค่า ไม่ใช่รอ",
     });
     summary.rejected += batch.record_count;
     summary.notes.push("403 forbidden — ตั้งค่า key ผิด ต้องแจ้ง RunnerPortal (คนละเรื่องกับ authority_moved)");
@@ -522,13 +603,20 @@ const sendBatch = async (
 
   // ---- Refusals that mean a bug on this side ----------------------------
   if (result.httpStatus === 400 || result.httpStatus === 409) {
+    const rpError = typeof result.body?.error === "string" ? result.body.error as string : "";
     await failBatch(client, batch, result, `http_${result.httpStatus}`);
     await settleRows({
       status: "failed",
       reason: `HTTP ${result.httpStatus} — ${JSON.stringify(result.body ?? {})} (ส่งซ้ำแบบเดิมจะได้ผลเดิม ต้องแก้ที่ระบบเรา)`,
     });
     summary.rejected += batch.record_count;
-    summary.notes.push(`HTTP ${result.httpStatus} จาก RunnerPortal — เป็นข้อผิดพลาดฝั่งเรา ต้องมีคนตรวจ`);
+    summary.notes.push(
+      rpError === "duplicate_bib_in_payload"
+        ? "409 duplicate_bib_in_payload — มีเลข BIB ซ้ำสองด้านของการย้ายในคำขอเดียว (ควรถูกกันไว้ตั้งแต่ buildBatch แล้ว ต้องมีคนตรวจ)"
+        : rpError === "idempotency_key_reused"
+        ? "409 idempotency_key_reused — Idempotency-Key เดิมแต่บอดี้ต่างจากเดิม เป็นบั๊กฝั่งเรา"
+        : `HTTP ${result.httpStatus} จาก RunnerPortal — เป็นข้อผิดพลาดฝั่งเรา ต้องมีคนตรวจ`,
+    );
     return false;
   }
 
@@ -618,6 +706,9 @@ const failBatch = async (
 
 interface RpRecordResult {
   bib_number?: string;
+  /** echoed back only for records we sent as a bib_old/bib_new pair */
+  bib_old?: string;
+  bib_new?: string;
   outcome?: string;
   reason?: string;
   changed?: string[];
@@ -675,15 +766,35 @@ const applyResults = async (
       continue;
     }
 
-    const delivered = record.outcome === "updated" || record.outcome === "unchanged";
+    const delivered = record.outcome === "updated" ||
+      record.outcome === "unchanged" ||
+      record.outcome === "created";
 
-    if (record.outcome === "updated") summary.updated += 1;
-    else if (record.outcome === "unchanged") summary.unchanged += 1;
-    else if (record.outcome === "not_found") summary.not_found += 1;
-    else if (record.outcome === "ambiguous_bib") summary.ambiguous += 1;
-    else summary.rejected += 1;
+    if (record.outcome === "updated") {
+      summary.updated += 1;
+      const moved = record.changed?.includes("bib_number") ||
+        (!!record.bib_old && !!record.bib_new && record.bib_old !== record.bib_new);
+      if (moved) summary.bib_changed += 1;
+    } else if (record.outcome === "created") {
+      summary.created += 1;
+    } else if (record.outcome === "unchanged") {
+      summary.unchanged += 1;
+    } else if (record.outcome === "not_found") {
+      summary.not_found += 1;
+    } else if (record.outcome === "ambiguous_bib") {
+      summary.ambiguous += 1;
+    } else {
+      summary.rejected += 1;
+      if (record.reason === "bib_new_conflict") summary.bib_conflicts += 1;
+    }
 
     if (delivered) summary.sent += 1;
+
+    if (delivered && record.ignored && record.ignored.length > 0) {
+      summary.notes.push(
+        `BIB ${record.bib_number}: RunnerPortal ไม่ได้บันทึกฟิลด์ ${record.ignored.join(", ")} (ignored) — อาจ mapping ผิด หรือกุญแจยังไม่มีสิทธิ์ในฟิลด์นั้น`,
+      );
+    }
 
     await client
       .from("runner_portal_sync_queue")
@@ -703,20 +814,46 @@ const applyResults = async (
 
   if (body.dry_run === true) {
     summary.notes.push("โหมด dry_run — RunnerPortal รายงานผลให้ครบแต่ยังไม่เขียนข้อมูลจริง");
+
+    // A diagnostic for the test phase: which raw fields our key can actually
+    // write. Only surfaced on dry_run to keep normal saves quiet.
+    const raw = body.writable_raw_fields;
+    if (Array.isArray(raw)) {
+      summary.notes.push(`writable_raw_fields (${raw.length}): ${raw.join(", ")}`);
+    }
   }
 };
 
+/** Reasons RunnerPortal returns on a rejected record, and what the admin does. */
+const REASON_TH: Record<string, string> = {
+  bib_old_not_found: "ไม่พบ bib_old นี้ที่ RunnerPortal — ตรวจว่าเลข BIB เดิมตรงกับของเขาไหม",
+  ambiguous_bib_old: "bib_old นี้ซ้ำหลายรายการที่ RunnerPortal — ต้องแจ้ง RunnerPortal ให้แก้ที่ต้นทาง",
+  bib_new_conflict: "bib_new มีนักวิ่งสถานะ registered ใช้อยู่แล้ว — เลือกเลขใหม่ หรือย้ายคนนั้นออกก่อน",
+  bib_values_empty: "ส่ง bib_old และ bib_new มาว่างทั้งคู่ — น่าจะเป็นบั๊กฝั่งเรา",
+  bib_new_required: "ส่ง bib_old มาแต่ bib_new ว่าง — ล้างเลข BIB ผ่าน API ไม่ได้ ต้องระบุ BIB ปลายทาง",
+  bib_contract_conflict: "ส่ง bib_number มาพร้อมคู่ bib_old/bib_new — ต้องเลือกวิธีเดียว",
+  name_required: "การแก้ไขนี้จะทำให้นักวิ่งไม่เหลือชื่อ — ต้องมีชื่ออย่างน้อย 1 ช่อง",
+};
+
 const describeOutcome = (record: RpRecordResult): string => {
-  switch (record.outcome) {
-    case "not_found":
-      return "ไม่พบ BIB นี้ในงานที่ RunnerPortal — ตรวจสอบว่าเลข BIB ถูกต้องหรือไม่";
-    case "ambiguous_bib":
-      return "BIB นี้ตรงกับมากกว่า 1 รายการที่ RunnerPortal — ผิดปกติ ต้องแจ้ง RunnerPortal";
-    case "rejected":
-      return `RunnerPortal ปฏิเสธรายการนี้: ${record.reason ?? "ไม่ระบุเหตุผล"}`;
-    default:
-      return `ผลลัพธ์ที่ไม่รู้จัก: ${record.outcome ?? "(ว่าง)"}`;
+  const reason = record.reason ?? "";
+
+  if (record.outcome === "not_found") {
+    return "ไม่พบ BIB นี้ในงานที่ RunnerPortal — ตรวจสอบว่าเลข BIB ถูกต้องหรือไม่";
   }
+  if (record.outcome === "ambiguous_bib") {
+    return "BIB นี้ตรงกับมากกว่า 1 รายการที่ RunnerPortal — ผิดปกติ ต้องแจ้ง RunnerPortal";
+  }
+  if (record.outcome === "rejected") {
+    if (reason.startsWith("scope_required:")) {
+      return `กุญแจยังไม่มีสิทธิ์ ${reason.slice("scope_required:".length)} — ต้องให้ RunnerPortal เปิดสิทธิ์ให้ก่อน (ย้าย/สร้าง BIB ต้องมี registrations:bib)`;
+    }
+    if (reason.startsWith("raw_value_not_scalar:")) {
+      return `ช่อง ${reason.slice("raw_value_not_scalar:".length)} ถูกส่งเป็น object/array — ต้องแปลงเป็นข้อความก่อนส่ง`;
+    }
+    return REASON_TH[reason] ?? `RunnerPortal ปฏิเสธรายการนี้: ${reason || "ไม่ระบุเหตุผล"}`;
+  }
+  return `ผลลัพธ์ที่ไม่รู้จัก: ${record.outcome ?? "(ว่าง)"}`;
 };
 
 // ---------------------------------------------------------------------------
@@ -918,6 +1055,32 @@ app.post("*", async (c) => {
         request_id: result.requestId,
         network_error: result.networkError,
         interpretation: interpretProbe(result),
+      });
+    }
+
+    // A hand-built dry-run call for the D1–D7 test sequence. Sends exactly the
+    // records given, ALWAYS with dry_run true, and touches neither the queue nor
+    // any state. Returns RunnerPortal's raw response so the tester can read the
+    // per-record outcomes, writable_raw_fields, changed[] and ignored[].
+    if (action === "test-edit") {
+      const records = (payload as Record<string, unknown>).records;
+      if (!Array.isArray(records) || records.length === 0) {
+        return c.json({ error: "test-edit needs a non-empty `records` array" }, 400);
+      }
+      const p = payload as Record<string, unknown>;
+      const rawBody = JSON.stringify({
+        event: typeof p.event === "string" ? p.event : config.event,
+        year: typeof p.year === "number" ? p.year : config.year,
+        dry_run: true, // never negotiable on this action
+        records,
+      });
+      const result = await callEdits(config, rawBody, crypto.randomUUID());
+      return c.json({
+        request_body: rawBody,
+        http_status: result.httpStatus,
+        body: result.body,
+        request_id: result.requestId,
+        network_error: result.networkError,
       });
     }
 
